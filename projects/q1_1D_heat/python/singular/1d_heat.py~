@@ -1,0 +1,33 @@
+# basic properties
+
+imax = 21          # number of grid points
+delta_x = 0.05     # dx
+delta_t = 0.05     # dt
+alpha = 0.1        # thermal diffusivity
+t0 = 100.0         # initial temperature
+tboundary = 300.0  # boundary temperature
+nmax = 100
+
+F_num = (alpha * delta_t) / (delta_x**2)
+
+
+
+def FTCS_explicit(nmax,F_num, tboundary, t0, imax):
+    u = [0] * (imax + 1)
+    un = [0] * (imax + 1)
+
+    for i in range(2,imax-1):
+        u[i] = t0
+        un[i] = t0
+
+    u[1] = tboundary
+    u[imax] = tboundary
+    un[1] = tboundary
+    un[imax] = tboundary
+
+    
+    
+FTCS_explicit(nmax,F_num, tboundary, t0, imax)
+
+
+
