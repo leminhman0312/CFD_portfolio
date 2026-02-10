@@ -104,21 +104,21 @@ def err_Linf(imax: int, a: np.ndarray, b: np.ndarray) -> float:
 #   dprime[i] = d[i] - (b[i]*a[i-1])/dprime[i-1]
 #   cprime[i] = c[i] - (cprime[i-1]*b[i])/dprime[i-1]
 # ============================================================================
-def thomasTriDiagonal(N: int, a: np.ndarray, b: np.ndarray, c: np.ndarray,
+def thomasTriDiagonal(imax: int, a: np.ndarray, b: np.ndarray, c: np.ndarray,
                       d: np.ndarray, u: np.ndarray) -> None:
-    dprime = np.zeros(N + 1, dtype=float)
-    cprime = np.zeros(N + 1, dtype=float)
+    dprime = np.zeros(imax + 1, dtype=float)
+    cprime = np.zeros(imax + 1, dtype=float)
 
     dprime[1] = d[1]
     cprime[1] = c[1]
 
-    for i in range(2, N + 1):
+    for i in range(2, imax + 1):
         dprime[i] = d[i] - (b[i] * a[i - 1]) / dprime[i - 1]
         cprime[i] = c[i] - (cprime[i - 1] * b[i]) / dprime[i - 1]
 
-    u[N] = cprime[N] / dprime[N]
+    u[imax] = cprime[imax] / dprime[imax]
 
-    for i in range(N - 1, 0, -1):
+    for i in range(imax - 1, 0, -1):
         u[i] = (cprime[i] - a[i] * u[i + 1]) / dprime[i]
 
 
@@ -385,40 +385,105 @@ def load_block_from_file(path: str, idx: int):
         return None, None
     return current_t, (np.array(x), np.array(y))
 
-
 def plot_one_dt(delta_t: float) -> None:
     ensure_plot_dir()
     tag = make_dt_tag(delta_t)
 
-    files = [
-        ("ftcs_explicit", os.path.join("data", f"ftcs_explicit_{tag}.txt")),
-        ("dufort",        os.path.join("data", f"dufort_{tag}.txt")),
-        ("ftcs_implicit", os.path.join("data", f"ftcs_implicit_{tag}.txt")),
-        ("cn",            os.path.join("data", f"cn_{tag}.txt")),
-        ("exact",         os.path.join("data", f"exact_{tag}.txt")),
-    ]
+    # --------------------------------------------------
+    # Files
+    # --------------------------------------------------
+    exact_file = os.path.join("data", f"exact_{tag}.txt")
+    cn_file    = os.path.join("data", f"cn_{tag}.txt")
+    ftcs_e_file = os.path.join("data", f"ftcs_explicit_{tag}.txt")
+    dufort_file = os.path.join("data", f"dufort_{tag}.txt")
+    ftcs_i_file = os.path.join("data", f"ftcs_implicit_{tag}.txt")
 
-    idx, tlabel = last_block_index_and_time(files[-1][1])
+    # --------------------------------------------------
+    # Time index
+    # --------------------------------------------------
+    idx, tlabel = last_block_index_and_time(exact_file)
     if tlabel == 0.0:
         idx = 4
         tlabel = 0.4
 
-    plt.figure()
-    for name, path in files:
-        t, data = load_block_from_file(path, idx)
-        if data is None:
-            continue
-        x, y = data
-        plt.plot(x, y, marker="o", label=name)
+    # --------------------------------------------------
+    # Load data
+    # --------------------------------------------------
+    _, data = load_block_from_file(exact_file, idx)
+    x, exact = data if data is not None else (None, None)
 
+    _, data = load_block_from_file(cn_file, idx)
+    x, cn = data if data is not None else (None, None)
+
+    _, data = load_block_from_file(ftcs_e_file, idx)
+    x, ftcs_explicit = data if data is not None else (None, None)
+
+    _, data = load_block_from_file(dufort_file, idx)
+    x, dufort = data if data is not None else (None, None)
+
+    _, data = load_block_from_file(ftcs_i_file, idx)
+    x, ftcs_implicit = data if data is not None else (None, None)
+
+    # --------------------------------------------------
+    # Plot
+    # --------------------------------------------------
+    plt.figure()
     plt.title(f"All schemes, dt={delta_t:.3f}, t={tlabel:.2f}")
-    plt.xlabel("x")
+    plt.xlabel("X")
     plt.ylabel("T")
     plt.grid(True)
+
+    if exact is not None:
+        plt.plot(
+            x, exact,
+            color="black",
+            linestyle="--",
+            linewidth=3.0,
+            label="exact"
+        )
+
+    if cn is not None:
+        plt.plot(
+            x, cn,
+            marker="d",
+            linestyle="-",
+            linewidth=1.5,
+            label="cn"
+        )
+
+    if ftcs_explicit is not None:
+        plt.plot(
+            x, ftcs_explicit,
+            marker="o",
+            linestyle="-",
+            linewidth=1.5,
+            label="ftcs explicit"
+        )
+
+    if dufort is not None:
+        plt.plot(
+            x, dufort,
+            marker="s",
+            linestyle="-",
+            linewidth=1.5,
+            label="dufort"
+        )
+
+    if ftcs_implicit is not None:
+        plt.plot(
+            x, ftcs_implicit,
+            marker="^",
+            linestyle="-",
+            linewidth=1.5,
+            label="ftcs implicit"
+        )
+
     plt.legend()
+
     outpng = os.path.join("plot", f"all_schemes_{tag}.png")
     plt.savefig(outpng, dpi=150)
     plt.show()
+
 
 
 def compare_error_schemes(delta_t: float, t_target: float = None) -> None:
@@ -463,7 +528,6 @@ def compare_error_schemes(delta_t: float, t_target: float = None) -> None:
     plt.legend()
     outpng = os.path.join("compare", f"error_schemes_{tag}_t{t_target:.1f}.png")
     plt.savefig(outpng, dpi=150)
-    plt.show()
 
 
 def convergence_study(delta_x: float, imax: int, alpha: float, t0: float,
@@ -535,7 +599,6 @@ def convergence_study(delta_x: float, imax: int, alpha: float, t0: float,
     plt.legend()
     outpng = os.path.join("compare", f"convergence_t{t_target:.2f}.png")
     plt.savefig(outpng, dpi=150)
-    plt.show()
 
 
 # ============================================================================
@@ -636,7 +699,7 @@ def sim(delta_x: float, delta_t: float, imax: int,
 def main():
     imax = 21
     delta_x = 0.05
-    delta_t = 0.05
+    delta_t = 0.01
     alpha = 0.1
     t0 = 100.0
     tboundary = 300.0
@@ -648,12 +711,12 @@ def main():
     print("Plotting all schemes at 1 dt\n")
     plot_one_dt(delta_t)
 
-    print("Comparing different schemes\n")
-    compare_error_schemes(delta_t, 0.4)
+    # print("Comparing different schemes\n")
+    # compare_error_schemes(delta_t, 0.4)
 
-    dt_list = [0.10, 0.05, 0.02, 0.01, 0.005]
-    print("Convergence study\n")
-    convergence_study(delta_x, imax, alpha, t0, tboundary, 0.4, dt_list)
+    # dt_list = [0.10, 0.05, 0.02, 0.01, 0.005]
+    # print("Convergence study\n")
+    # convergence_study(delta_x, imax, alpha, t0, tboundary, 0.4, dt_list)
 
 
 if __name__ == "__main__":
