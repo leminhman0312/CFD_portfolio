@@ -1,30 +1,26 @@
-
+#include "headers.h"
+#include "helpers.h"
 #include "driver.h"
 
 int main() {
-  int imax = 21;             // domain length
-  double delta_x = 0.05;     // spacing in x
-  double delta_t = 0.01;     // spacing in time
-  double alpha = 0.1;        // thermal diffusivity
-  double t0 = 100.0;         // initial temperatures
-  double tboundary = 300.0;  // boundary side temperatures
+  int imax = 21;
+  double dx = 0.05;
+  double dt = 0.01;
+  double alpha = 0.1;
+  double t0 = 100.0;
+  double tb = 300.0;
 
-  double Fourier_num = (alpha * delta_t) /
-                       (pow(delta_x, 2.0));  // alpha*dt/dx^2 the Fourier number
+  double F = alpha * dt / (dx * dx);
 
-  sim(delta_x, delta_t, imax, t0, tboundary,
-      Fourier_num);  // run the simulation
 
-  printf("Plotting all schemes at 1 dt\n\n");
-  plot(delta_t);
+  create_dir();
+  sim(dx, dt, imax, t0, tb, F);
+  plot(dt);
+  plot_error_schemes(dt, 0.4);
+  convergence_study(dx, imax, alpha, t0, tb, 0.4);
+  plot_convergence(0.4);
 
-  printf("Comparing different schemes\n\n");
-  compare_error_schemes(delta_t, 0.4);
 
-  // For error norm analysis
-  double dt_list[] = {0.10, 0.05, 0.02, 0.01, 0.005};
-  printf("Convergence study\n\n");
-  convergence_study(delta_x, imax, alpha, t0, tboundary, 0.4, dt_list, 5);
-
+  std::printf("Done\n");
   return 0;
 }

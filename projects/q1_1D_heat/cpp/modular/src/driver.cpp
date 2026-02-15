@@ -1,309 +1,230 @@
 #include "driver.h"
-
-#include <cmath>
-#include <cstdio>
-#include <cstdlib>
-
 #include "helpers.h"
 #include "methods.h"
 
-// compare dt single time
-void compare_dt(const char* scheme, double dt1, double dt2, double t_target) {
-  ensure_compare_dir();
+#include <cstdio>
+#include <cstdlib>
+#include <cmath>
+#include <vector>
 
-  if (!scheme_data_exists(scheme, dt1) || !scheme_data_exists(scheme, dt2))
-    return;
-
-  char tag1[8], tag2[8];
-  make_dt_tag(dt1, tag1);
-  make_dt_tag(dt2, tag2);
-
-  int idx = (int)lround(t_target / 0.1);
-
-  char cmd[512];
-  std::snprintf(
-      cmd, sizeof(cmd),
-      "gnuplot -e \"scheme='%s'; tag1='%s'; dt1='%.2f'; tag2='%s'; dt2='%.2f'; "
-      "idx=%d; tlabel='%.1f'\" gnuplot_scripts/compare_dt.gp",
-      scheme, tag1, dt1, tag2, dt2, idx, t_target);
-
-  system(cmd);
-}
-
-void compare_dt_all_times(const char* scheme, double dt1, double dt2) {
-  double times[4] = {0.1, 0.2, 0.3, 0.4};
-  for (int k = 0; k < 4; k++) compare_dt(scheme, dt1, dt2, times[k]);
-}
-
-// compare schemes at one time
-void compare_schemes(double delta_t, double t_target) {
-  ensure_compare_dir();
-
+// -----------------------------------------------------------------------------
+// sim: write scheme profiles and per scheme error files
+// -----------------------------------------------------------------------------
+void sim(double dx, double dt, int imax, double t0, double tb, double F) {
   char tag[8];
-  make_dt_tag(delta_t, tag);
+  make_dt_tag(dt, tag);
 
-  char exact_path[128];
-  std::snprintf(exact_path, sizeof(exact_path), "data/exact_%s.txt", tag);
+  char fexp[128], fdf[128], fimp[128], fcn[128], fex[128];
+  std::snprintf(fexp, sizeof(fexp), "data/ftcs_explicit_%s.txt", tag);
+  std::snprintf(fdf,  sizeof(fdf),  "data/dufort_%s.txt", tag);
+  std::snprintf(fimp, sizeof(fimp), "data/ftcs_implicit_%s.txt", tag);
+  std::snprintf(fcn,  sizeof(fcn),  "data/cn_%s.txt", tag);
+  std::snprintf(fex,  sizeof(fex),  "data/exact_%s.txt", tag);
 
-  int idx = 0;
-  double tlabel = 0.0;
+  FILE* uexp = std::fopen(fexp, "w");
+  FILE* udf  = std::fopen(fdf,  "w");
+  FILE* uimp = std::fopen(fimp, "w");
+  FILE* ucn  = std::fopen(fcn,  "w");
+  FILE* uex  = std::fopen(fex,  "w");
 
-  if (t_target < 0.0) {
-    idx = last_block_index_and_time(exact_path, &tlabel);
-  } else {
-    tlabel = t_target;
-    idx = (int)lround(t_target / 0.1);
+  if (!uexp || !udf || !uimp || !ucn || !uex) {
+    std::perror("fopen");
+    std::exit(1);
   }
 
-  char cmd[256];
-  std::snprintf(cmd, sizeof(cmd),
-                "gnuplot -e \"tag='%s'; dt='%.2f'; idx=%d; tlabel='%.1f'\" "
-                "gnuplot_scripts/compare_schemes.gp",
-                tag, delta_t, idx, tlabel);
+  char ferr_exp[128], ferr_imp[128], ferr_df[128], ferr_cn[128];
+  std::snprintf(ferr_exp, sizeof(ferr_exp), "data/error_ftcs_explicit_%s.txt", tag);
+  std::snprintf(ferr_imp, sizeof(ferr_imp), "data/error_ftcs_implicit_%s.txt", tag);
+  std::snprintf(ferr_df,  sizeof(ferr_df),  "data/error_dufort_%s.txt", tag);
+  std::snprintf(ferr_cn,  sizeof(ferr_cn),  "data/error_cn_%s.txt", tag);
 
-  system(cmd);
-}
+  FILE* uerr_exp = std::fopen(ferr_exp, "w");
+  FILE* uerr_imp = std::fopen(ferr_imp, "w");
+  FILE* uerr_df  = std::fopen(ferr_df,  "w");
+  FILE* uerr_cn  = std::fopen(ferr_cn,  "w");
 
-// run one dt and write all scheme data files
-void sim(double delta_x, double delta_t, int imax, double t0, double tboundary,
-         double F_num) {
-  ensure_data_dir();
+  if (!uerr_exp || !uerr_imp || !uerr_df || !uerr_cn) {
+    std::perror("fopen");
+    std::exit(1);
+  }
 
-  char tag[8];
-  make_dt_tag(delta_t, tag);
+  std::vector<double> x(imax + 1, 0.0);
+  build_grid(imax, dx, x.data());
 
-  char f_explicit[64], f_dufort[64], f_implicit[64], f_cn[64], f_exact[64];
-  std::snprintf(f_explicit, 64, "data/ftcs_explicit_%s.txt", tag);
-  std::snprintf(f_dufort, 64, "data/dufort_%s.txt", tag);
-  std::snprintf(f_implicit, 64, "data/ftcs_implicit_%s.txt", tag);
-  std::snprintf(f_cn, 64, "data/cn_%s.txt", tag);
-  std::snprintf(f_exact, 64, "data/exact_%s.txt", tag);
+  double L = (imax - 1) * dx;
+  double alpha = F * (dx * dx) / dt;
 
-  FILE* outfile_explicit = fopen(f_explicit, "w");
-  FILE* outfile_dufort = fopen(f_dufort, "w");
-  FILE* outfile_implicit = fopen(f_implicit, "w");
-  FILE* outfile_cn = fopen(f_cn, "w");
-  FILE* outfile_exact = fopen(f_exact, "w");
+  std::vector<double> Tex(imax + 1, 0.0);
+  std::vector<double> Texp(imax + 1, 0.0);
+  std::vector<double> Tdf(imax + 1, 0.0);
+  std::vector<double> Timp(imax + 1, 0.0);
+  std::vector<double> Tcn(imax + 1, 0.0);
 
-  char f_err_exp[64], f_err_imp[64], f_err_df[64], f_err_cn[64];
-  std::snprintf(f_err_exp, 64, "data/error_ftcs_explicit_%s.txt", tag);
-  std::snprintf(f_err_imp, 64, "data/error_ftcs_implicit_%s.txt", tag);
-  std::snprintf(f_err_df, 64, "data/error_dufort_%s.txt", tag);
-  std::snprintf(f_err_cn, 64, "data/error_cn_%s.txt", tag);
+  for (int k = 0; k <= 4; k++) {
+    double t = 0.1 * (double)k;
+    int nmax = (int)lround(t / dt);
 
-  FILE* outfile_err_exp = fopen(f_err_exp, "w");
-  FILE* outfile_err_imp = fopen(f_err_imp, "w");
-  FILE* outfile_err_df = fopen(f_err_df, "w");
-  FILE* outfile_err_cn = fopen(f_err_cn, "w");
+    FTCS_explicit(nmax, F, tb, t0, imax, Texp.data());
+    DufortFrankel(nmax, F, tb, t0, imax, Tdf.data());
+    FTCS_implicit(nmax, F, tb, t0, imax, Timp.data());
+    CrankNicolson(nmax, F, tb, t0, imax, Tcn.data());
 
-  double x_vector[imax + 1];
-  x_vector[1] = 0.0;
-  for (int i = 1; i <= imax - 1; i++) x_vector[i + 1] = x_vector[i] + delta_x;
+    exact_solution_profile(imax, x.data(), t, alpha, L, tb, t0, 200, Tex.data());
 
-  double L = (imax - 1) * delta_x;
-  double alpha = F_num * (delta_x * delta_x) / delta_t;
-  double T_exact[imax + 1];
+    write_block_T(uexp, t, imax, x.data(), Texp.data());
+    write_block_T(udf,  t, imax, x.data(), Tdf.data());
+    write_block_T(uimp, t, imax, x.data(), Timp.data());
+    write_block_T(ucn,  t, imax, x.data(), Tcn.data());
+    write_block_T(uex,  t, imax, x.data(), Tex.data());
 
-  double T_explicit[imax + 1], T_dufort[imax + 1], T_implicit[imax + 1],
-      T_cn[imax + 1];
-
-  for (int k = 0; k < 5; k++) {
-    double t_target = 0.1 * k;
-    int nmax = (int)lround(t_target / delta_t);
-
-    // compute the schemes
-    FTCS_explicit(nmax, F_num, tboundary, t0, imax, T_explicit);
-    DufortFrankel(nmax, F_num, tboundary, t0, imax, T_dufort);
-    FTCS_implicit(nmax, F_num, tboundary, t0, imax, T_implicit);
-    CrankNicolson(nmax, F_num, tboundary, t0, imax, T_cn);
-
-    // compute the exact solution
-    exact_solution_profile(imax, x_vector, t_target, alpha, L, tboundary, t0,
-                           200, T_exact);
-
-    // write to files
-    fprintf(outfile_explicit, "# t = %.2f hr\n# x\tT\n", t_target);
-    fprintf(outfile_dufort, "# t = %.2f hr\n# x\tT\n", t_target);
-    fprintf(outfile_implicit, "# t = %.2f hr\n# x\tT\n", t_target);
-    fprintf(outfile_cn, "# t = %.2f hr\n# x\tT\n", t_target);
-    fprintf(outfile_exact, "# t = %.2f hr\n# x\tT\n", t_target);
-
-    fprintf(outfile_err_exp, "# t = %.2f hr\n# x\terr\n", t_target);
-    fprintf(outfile_err_imp, "# t = %.2f hr\n# x\terr\n", t_target);
-    fprintf(outfile_err_df, "# t = %.2f hr\n# x\terr\n", t_target);
-    fprintf(outfile_err_cn, "# t = %.2f hr\n# x\terr\n", t_target);
+    std::fprintf(uerr_exp, "# t = %.2f hr\n# x\terr\n", t);
+    std::fprintf(uerr_imp, "# t = %.2f hr\n# x\terr\n", t);
+    std::fprintf(uerr_df,  "# t = %.2f hr\n# x\terr\n", t);
+    std::fprintf(uerr_cn,  "# t = %.2f hr\n# x\terr\n", t);
 
     for (int i = 1; i <= imax; i++) {
-      fprintf(outfile_explicit, "%.6f\t%.6f\n", x_vector[i], T_explicit[i]);
-      fprintf(outfile_dufort, "%.6f\t%.6f\n", x_vector[i], T_dufort[i]);
-      fprintf(outfile_implicit, "%.6f\t%.6f\n", x_vector[i], T_implicit[i]);
-      fprintf(outfile_cn, "%.6f\t%.6f\n", x_vector[i], T_cn[i]);
-      fprintf(outfile_exact, "%.6f\t%.6f\n", x_vector[i], T_exact[i]);
-
-      fprintf(outfile_err_exp, "%.6f\t%.6f\n", x_vector[i],
-              T_explicit[i] - T_exact[i]);
-      fprintf(outfile_err_imp, "%.6f\t%.6f\n", x_vector[i],
-              T_implicit[i] - T_exact[i]);
-      fprintf(outfile_err_df, "%.6f\t%.6f\n", x_vector[i],
-              T_dufort[i] - T_exact[i]);
-      fprintf(outfile_err_cn, "%.6f\t%.6f\n", x_vector[i],
-              T_cn[i] - T_exact[i]);
+      std::fprintf(uerr_exp, "%.6f\t%.6f\n", x[i], Texp[i] - Tex[i]);
+      std::fprintf(uerr_imp, "%.6f\t%.6f\n", x[i], Timp[i] - Tex[i]);
+      std::fprintf(uerr_df,  "%.6f\t%.6f\n", x[i], Tdf[i]  - Tex[i]);
+      std::fprintf(uerr_cn,  "%.6f\t%.6f\n", x[i], Tcn[i]  - Tex[i]);
     }
 
-    fprintf(outfile_explicit, "\n\n");
-    fprintf(outfile_dufort, "\n\n");
-    fprintf(outfile_implicit, "\n\n");
-    fprintf(outfile_cn, "\n\n");
-    fprintf(outfile_exact, "\n\n");
-
-    fprintf(outfile_err_exp, "\n\n");
-    fprintf(outfile_err_imp, "\n\n");
-    fprintf(outfile_err_df, "\n\n");
-    fprintf(outfile_err_cn, "\n\n");
+    std::fprintf(uerr_exp, "\n\n");
+    std::fprintf(uerr_imp, "\n\n");
+    std::fprintf(uerr_df,  "\n\n");
+    std::fprintf(uerr_cn,  "\n\n");
   }
 
-  fclose(outfile_explicit);
-  fclose(outfile_dufort);
-  fclose(outfile_implicit);
-  fclose(outfile_cn);
-  fclose(outfile_exact);
+  std::fclose(uexp);
+  std::fclose(udf);
+  std::fclose(uimp);
+  std::fclose(ucn);
+  std::fclose(uex);
 
-  fclose(outfile_err_exp);
-  fclose(outfile_err_imp);
-  fclose(outfile_err_df);
-  fclose(outfile_err_cn);
+  std::fclose(uerr_exp);
+  std::fclose(uerr_imp);
+  std::fclose(uerr_df);
+  std::fclose(uerr_cn);
 }
 
-// plot all schemes for one dt
-void plot(double delta_t) {
-  ensure_plot_dir();
-
+// -----------------------------------------------------------------------------
+// plot: profile plots for one dt (scheme by scheme)
+// -----------------------------------------------------------------------------
+void plot(double dt) {
   char tag[8];
-  make_dt_tag(delta_t, tag);
+  make_dt_tag(dt, tag);
 
-  char cmd[256];
+  char cmd[512];
 
-  std::snprintf(
-      cmd, 256,
-      "gnuplot -e \"scheme='ftcs_explicit'; tag='%s'; dt='%.2f'; "
-      "outpng='plot/ftcs_explicit_%s.png'\" gnuplot_scripts/plot_scheme.gp",
-      tag, delta_t, tag);
-  system(cmd);
+  std::snprintf(cmd, sizeof(cmd),
+    "gnuplot -e \"scheme='ftcs_explicit'; tag='%s'; dt='%.6f'; outpng='plot/ftcs_explicit_%s.png'\" gnuplot_scripts/plot_scheme.gp",
+    tag, dt, tag);
+  std::system(cmd);
 
-  std::snprintf(cmd, 256,
-                "gnuplot -e \"scheme='dufort'; tag='%s'; dt='%.2f'; "
-                "outpng='plot/dufort_%s.png'\" gnuplot_scripts/plot_scheme.gp",
-                tag, delta_t, tag);
-  system(cmd);
+  std::snprintf(cmd, sizeof(cmd),
+    "gnuplot -e \"scheme='dufort'; tag='%s'; dt='%.6f'; outpng='plot/dufort_%s.png'\" gnuplot_scripts/plot_scheme.gp",
+    tag, dt, tag);
+  std::system(cmd);
 
-  std::snprintf(
-      cmd, 256,
-      "gnuplot -e \"scheme='ftcs_implicit'; tag='%s'; dt='%.2f'; "
-      "outpng='plot/ftcs_implicit_%s.png'\" gnuplot_scripts/plot_scheme.gp",
-      tag, delta_t, tag);
-  system(cmd);
+  std::snprintf(cmd, sizeof(cmd),
+    "gnuplot -e \"scheme='ftcs_implicit'; tag='%s'; dt='%.6f'; outpng='plot/ftcs_implicit_%s.png'\" gnuplot_scripts/plot_scheme.gp",
+    tag, dt, tag);
+  std::system(cmd);
 
-  std::snprintf(cmd, 256,
-                "gnuplot -e \"scheme='cn'; tag='%s'; dt='%.2f'; "
-                "outpng='plot/cn_%s.png'\" gnuplot_scripts/plot_scheme.gp",
-                tag, delta_t, tag);
-  system(cmd);
+  std::snprintf(cmd, sizeof(cmd),
+    "gnuplot -e \"scheme='cn'; tag='%s'; dt='%.6f'; outpng='plot/cn_%s.png'\" gnuplot_scripts/plot_scheme.gp",
+    tag, dt, tag);
+  std::system(cmd);
 }
 
-void compare_error_schemes(double delta_t) {
+// -----------------------------------------------------------------------------
+// plot error vs exact at one t_target (writes png using gnuplot script)
+// -----------------------------------------------------------------------------
+void plot_error_schemes(double dt, double t_target) {
   char tag[8];
-  make_dt_tag(delta_t, tag);
-
-  char exact_path[128];
-  std::snprintf(exact_path, sizeof(exact_path), "data/exact_%s.txt", tag);
-
-  double t_latest = latest_time_in_file(exact_path);
-  if (t_latest <= 0.0) return;
-
-  compare_error_schemes(delta_t, t_latest);
-}
-
-void compare_error_schemes(double delta_t, double t_target) {
-  ensure_compare_dir();
-
-  char tag[8];
-  make_dt_tag(delta_t, tag);
+  make_dt_tag(dt, tag);
 
   int idx = (int)lround(t_target / 0.1);
 
   char cmd[512];
   std::snprintf(cmd, sizeof(cmd),
-                "gnuplot -e \"tag='%s'; dt=%.2f; idx=%d; tlabel='%.1f'; "
-                "outpng='plot/error_schemes_%s_t%.1f.png'\" "
-                "gnuplot_scripts/compare_error_schemes.gp",
-                tag, delta_t, idx, t_target, tag, t_target);
-  system(cmd);
+    "gnuplot -e \"tag='%s'; dt=%.6f; idx=%d; tlabel='%.1f'; outpng='plot/error_schemes_%s_t%.1f.png'\" gnuplot_scripts/compare_error_schemes.gp",
+    tag, dt, idx, t_target, tag, t_target);
+  std::system(cmd);
 }
 
-void convergence_study(double delta_x, int imax, double alpha, double t0,
-                       double tboundary, double t_target,
-                       const double dt_list[], int ndt) {
-  ensure_data_dir();
-  ensure_compare_dir();
+// -----------------------------------------------------------------------------
+// convergence table + plot
+// -----------------------------------------------------------------------------
+void convergence_study(double dx, int imax, double alpha,
+                       double t0, double tb, double t_target) {
+  const int ndt = 5;
+  const double dt_list[ndt] = {0.10, 0.05, 0.02, 0.01, 0.005};
 
   char outdata[128];
   std::snprintf(outdata, sizeof(outdata), "data/convergence_t%03d.txt",
                 (int)lround(t_target * 100.0));
 
   FILE* f = std::fopen(outdata, "w");
-  if (!f) return;
+  if (!f) {
+    std::perror("fopen");
+    std::exit(1);
+  }
 
   std::fprintf(f, "# convergence at t = %.2f hr\n", t_target);
   std::fprintf(f,
-               "# "
-               "dt\tL2_exp\tL2_imp\tL2_df\tL2_cn\tLinf_exp\tLinf_imp\tLinf_"
-               "df\tLinf_cn\n");
+               "# dt\tL2_exp\tL2_imp\tL2_df\tL2_cn\t"
+               "Linf_exp\tLinf_imp\tLinf_df\tLinf_cn\n");
 
-  double x_vector[imax + 1];
-  x_vector[1] = 0.0;
-  for (int i = 1; i <= imax - 1; i++) x_vector[i + 1] = x_vector[i] + delta_x;
+  std::vector<double> x(imax + 1, 0.0);
+  build_grid(imax, dx, x.data());
 
-  double L = (imax - 1) * delta_x;
+  double L = (imax - 1) * dx;
+
+  std::vector<double> Tex(imax + 1, 0.0);
+  std::vector<double> Texp(imax + 1, 0.0);
+  std::vector<double> Timp(imax + 1, 0.0);
+  std::vector<double> Tdf(imax + 1, 0.0);
+  std::vector<double> Tcn(imax + 1, 0.0);
 
   for (int k = 0; k < ndt; k++) {
     double dt = dt_list[k];
-    double F_num = (alpha * dt) / (delta_x * delta_x);
+    double F  = alpha * dt / (dx * dx);
+    int nmax  = (int)lround(t_target / dt);
 
-    int nmax = (int)lround(t_target / dt);
+    FTCS_explicit(nmax, F, tb, t0, imax, Texp.data());
+    FTCS_implicit(nmax, F, tb, t0, imax, Timp.data());
+    DufortFrankel(nmax, F, tb, t0, imax, Tdf.data());
+    CrankNicolson(nmax, F, tb, t0, imax, Tcn.data());
 
-    double T_exp[imax + 1], T_imp[imax + 1], T_df[imax + 1], T_cn[imax + 1],
-        T_ex[imax + 1];
+    exact_solution_profile(imax, x.data(), t_target, alpha, L, tb, t0, 200, Tex.data());
 
-    FTCS_explicit(nmax, F_num, tboundary, t0, imax, T_exp);
-    FTCS_implicit(nmax, F_num, tboundary, t0, imax, T_imp);
-    DufortFrankel(nmax, F_num, tboundary, t0, imax, T_df);
-    CrankNicolson(nmax, F_num, tboundary, t0, imax, T_cn);
+    double L2_exp = err_L2(imax, Texp.data(), Tex.data());
+    double L2_imp = err_L2(imax, Timp.data(), Tex.data());
+    double L2_df  = err_L2(imax, Tdf.data(),  Tex.data());
+    double L2_cn  = err_L2(imax, Tcn.data(),  Tex.data());
 
-    exact_solution_profile(imax, x_vector, t_target, alpha, L, tboundary, t0,
-                           200, T_ex);
+    double Li_exp = err_Linf(imax, Texp.data(), Tex.data());
+    double Li_imp = err_Linf(imax, Timp.data(), Tex.data());
+    double Li_df  = err_Linf(imax, Tdf.data(),  Tex.data());
+    double Li_cn  = err_Linf(imax, Tcn.data(),  Tex.data());
 
-    double L2_exp = err_L2(imax, T_exp, T_ex);
-    double L2_imp = err_L2(imax, T_imp, T_ex);
-    double L2_df = err_L2(imax, T_df, T_ex);
-    double L2_cn = err_L2(imax, T_cn, T_ex);
-
-    double Li_exp = err_Linf(imax, T_exp, T_ex);
-    double Li_imp = err_Linf(imax, T_imp, T_ex);
-    double Li_df = err_Linf(imax, T_df, T_ex);
-    double Li_cn = err_Linf(imax, T_cn, T_ex);
-
-    std::fprintf(
-        f, "%.6f\t%.10e\t%.10e\t%.10e\t%.10e\t%.10e\t%.10e\t%.10e\t%.10e\n", dt,
-        L2_exp, L2_imp, L2_df, L2_cn, Li_exp, Li_imp, Li_df, Li_cn);
+    std::fprintf(f,
+      "%.6f\t%.10e\t%.10e\t%.10e\t%.10e\t%.10e\t%.10e\t%.10e\t%.10e\n",
+      dt, L2_exp, L2_imp, L2_df, L2_cn, Li_exp, Li_imp, Li_df, Li_cn);
   }
 
   std::fclose(f);
+}
+
+void plot_convergence(double t_target) {
+  char infile[128];
+  std::snprintf(infile, sizeof(infile), "data/convergence_t%03d.txt",
+                (int)lround(t_target * 100.0));
 
   char cmd[512];
-  std::snprintf(
-      cmd, sizeof(cmd),
-      "gnuplot -e \"infile='%s'; tlabel='%.2f'; "
-      "outpng='compare/convergence_t%.2f.png'\" gnuplot_scripts/convergence.gp",
-      outdata, t_target, t_target);
+  std::snprintf(cmd, sizeof(cmd),
+    "gnuplot -e \"infile='%s'; tlabel='%.2f'; outpng='plot/convergence_t%.2f.png'\" gnuplot_scripts/convergence.gp",
+    infile, t_target, t_target);
   std::system(cmd);
 }

@@ -1,224 +1,32 @@
 #include "methods.h"
 
-// FTCS explicit
-
-void FTCS_explicit(int nmax, double F_num, double tboundary, double t0,
-                   int imax, double out_un[]) {
-  double u[imax + 1];
-  double un[imax + 1];
-
-  for (int i = 2; i <= imax - 1; i++) {
-    u[i] = t0;
-    un[i] = t0;
-  }
-
-  u[1] = tboundary;
-  u[imax] = tboundary;
-  un[1] = tboundary;
-  un[imax] = tboundary;
-
-  for (int n = 1; n <= nmax; n++) {
-    for (int i = 1; i <= imax; i++) u[i] = un[i];
-
-    for (int i = 2; i <= imax - 1; i++) {
-      un[i] = u[i] + F_num * (u[i + 1] - 2.0 * u[i] + u[i - 1]);
-    }
-
-    un[1] = tboundary;
-    un[imax] = tboundary;
-  }
-
-  for (int i = 1; i <= imax; i++) out_un[i] = un[i];
-}
-
-// Dufort Frankel
-void DufortFrankel(int nmax, double F_num, double tboundary, double t0,
-                   int imax, double out_un[]) {
-  double d = 2.0 * F_num;
-
-  double un_m1[imax + 1] = {0.0};
-  double un_p1[imax + 1] = {0.0};
-  double un[imax + 1];
-
-  un_m1[1] = tboundary;
-  un_m1[imax] = tboundary;
-  for (int i = 2; i <= imax - 1; i++) un_m1[i] = t0;
-
-  // starter step using your implicit interior helper
-  double u1[imax + 1];
-  FTCS_return_implicit_interior(1, F_num, tboundary, t0, imax, u1);
-  for (int i = 1; i <= imax; i++) un[i] = u1[i];
-
-  for (int n = 1; n <= nmax - 1; n++) {
-    for (int i = 2; i <= imax - 1; i++) {
-      un_p1[i] =
-          ((1.0 - d) * un_m1[i] + d * (un[i + 1] + un[i - 1])) / (1.0 + d);
-    }
-
-    un_p1[1] = tboundary;
-    un_p1[imax] = tboundary;
-
-    for (int i = 1; i <= imax; i++) {
-      un_m1[i] = un[i];
-      un[i] = un_p1[i];
-    }
-  }
-
-  for (int i = 1; i <= imax; i++) out_un[i] = un[i];
-}
-
-// implicit interior helper
-void FTCS_return_implicit_interior(int nmax, double F_num, double tboundary,
-                                   double t0, int imax, double u_full[]) {
-  int N = imax - 2;
-
-  double a[N + 1], b[N + 1], c[N + 1], d[N + 1], u_int[N + 1];
-
-  for (int i = 0; i <= N; i++) {
-    a[i] = b[i] = c[i] = d[i] = u_int[i] = 0.0;
-  }
-
-  u_full[1] = tboundary;
-  u_full[imax] = tboundary;
-  for (int i = 2; i <= imax - 1; i++) u_full[i] = t0;
-
-  // uniform interior system, then enforce edge structure
-  for (int j = 1; j <= N; j++) {
-    d[j] = 1.0 + 2.0 * F_num;
-    a[j] = -F_num;
-    b[j] = -F_num;
-  }
-  b[1] = 0.0;
-  a[N] = 0.0;
-
-  for (int t = 1; t <= nmax; t++) {
-    for (int j = 1; j <= N; j++) {
-      int i = j + 1;
-      c[j] = u_full[i];
-    }
-
-    c[1] += F_num * tboundary;
-    c[N] += F_num * tboundary;
-
-    thomasTriDiagonal(N, a, b, c, d, u_int);
-
-    u_full[1] = tboundary;
-    u_full[imax] = tboundary;
-    for (int j = 1; j <= N; j++) {
-      int i = j + 1;
-      u_full[i] = u_int[j];
-    }
-  }
-}
-
-// full implicit solver
-void FTCS_implicit(int nmax, double F_num, double tboundary, double t0,
-                   int imax, double out_un[]) {
-  double a[imax + 1], b[imax + 1], c[imax + 1], d[imax + 1], un[imax + 1];
-
-  un[1] = tboundary;
-  un[imax] = tboundary;
-  for (int i = 2; i <= imax - 1; i++) un[i] = t0;
-
-  d[1] = 1.0;
-  a[1] = 0.0;
-  b[1] = 0.0;
-  d[imax] = 1.0;
-  a[imax] = 0.0;
-  b[imax] = 0.0;
-
-  for (int i = 2; i <= imax - 1; i++) {
-    d[i] = 1.0 + 2.0 * F_num;
-    a[i] = -F_num;
-    b[i] = -F_num;
-  }
-
-  for (int t = 1; t <= nmax; t++) {
-    c[1] = tboundary;
-    c[imax] = tboundary;
-    for (int i = 2; i <= imax - 1; i++) c[i] = un[i];
-    thomasTriDiagonal(imax, a, b, c, d, un);
-  }
-
-  for (int i = 1; i <= imax; i++) out_un[i] = un[i];
-}
-
-// Crank Nicolson (your current logic)
-void CrankNicolson(int nmax, double F_num, double tboundary, double t0,
-                   int imax, double out_un[]) {
-  double d_NC = F_num / 2.0;
-
-  double a[imax + 1], b[imax + 1], c[imax + 1], d[imax + 1];
-  double u0[imax + 1];
-  double u_half[imax + 1];
-
-  u0[1] = tboundary;
-  u0[imax] = tboundary;
-  for (int i = 2; i <= imax - 1; i++) u0[i] = t0;
-
-  u_half[1] = tboundary;
-  u_half[imax] = tboundary;
-
-  d[1] = 1.0;
-  a[1] = 0.0;
-  b[1] = 0.0;
-  d[imax] = 1.0;
-  a[imax] = 0.0;
-  b[imax] = 0.0;
-
-  for (int i = 2; i <= imax - 1; i++) {
-    d[i] = 1.0 + 2.0 * d_NC;
-    a[i] = -d_NC;
-    b[i] = -d_NC;
-  }
-
-  for (int n = 1; n <= nmax; n++) {
-    u_half[1] = tboundary;
-    u_half[imax] = tboundary;
-
-    for (int i = 2; i <= imax - 1; i++) {
-      u_half[i] = u0[i] + d_NC * (u0[i + 1] - 2.0 * u0[i] + u0[i - 1]);
-    }
-
-    c[1] = tboundary;
-    c[imax] = tboundary;
-    for (int i = 2; i <= imax - 1; i++) c[i] = u_half[i];
-
-    thomasTriDiagonal(imax, a, b, c, d, u0);
-
-    u0[1] = tboundary;
-    u0[imax] = tboundary;
-  }
-
-  for (int i = 1; i <= imax; i++) out_un[i] = u0[i];
-}
-
-// thomas
-void thomasTriDiagonal(int imax, double a[], double b[], double c[], double d[],
-                       double u[]) {
-  double dprime[imax + 1];
-  double cprime[imax + 1];
+void thomasTriDiagonal(int N,
+                              const double a[], const double b[],
+                              const double c[], const double d[],
+                              double u[]) {
+  std::vector<double> dprime(N + 1, 0.0);
+  std::vector<double> cprime(N + 1, 0.0);
 
   dprime[1] = d[1];
   cprime[1] = c[1];
 
-  for (int i = 2; i <= imax; i++) {
+  for (int i = 2; i <= N; i++) {
     dprime[i] = d[i] - (b[i] * a[i - 1]) / dprime[i - 1];
     cprime[i] = c[i] - (cprime[i - 1] * b[i]) / dprime[i - 1];
   }
 
-  u[imax] = cprime[imax] / dprime[imax];
-
-  for (int i = imax - 1; i >= 1; i--) {
+  u[N] = cprime[N] / dprime[N];
+  for (int i = N - 1; i >= 1; i--) {
     u[i] = (cprime[i] - a[i] * u[i + 1]) / dprime[i];
   }
 }
 
-void exact_solution_profile(int imax, const double x[], double t, double alpha,
-                            double L, double tboundary, double t0, int nterms,
-                            double out_T[]) {
-  const double pi = 4.00 * atan(1.0);  // 3.14159265358979323846;
-  const double A = (t0 - tboundary);
+void exact_solution_profile(int imax, const double x[], double t,
+                            double alpha, double L,
+                            double tb, double t0,
+                            int nterms, double Tout[]) {
+  const double pi = 4.0 * std::atan(1.0);
+  const double A  = t0 - tb;
 
   for (int i = 1; i <= imax; i++) {
     double sum = 0.0;
@@ -231,9 +39,160 @@ void exact_solution_profile(int imax, const double x[], double t, double alpha,
       sum += coeff * std::sin(k * x[i]) * std::exp(-alpha * k * k * t);
     }
 
-    out_T[i] = tboundary + sum;
+    Tout[i] = tb + sum;
   }
 
-  out_T[1] = tboundary;
-  out_T[imax] = tboundary;
+  Tout[1] = tb;
+  Tout[imax] = tb;
+}
+
+void FTCS_explicit(int nmax, double F, double tb, double t0,
+                   int imax, double Tout[]) {
+  std::vector<double> u(imax + 1, 0.0);
+  std::vector<double> un(imax + 1, 0.0);
+
+  un[1] = tb;
+  un[imax] = tb;
+  for (int i = 2; i <= imax - 1; i++) un[i] = t0;
+
+  for (int n = 1; n <= nmax; n++) {
+    u = un;
+    for (int i = 2; i <= imax - 1; i++) {
+      un[i] = u[i] + F * (u[i + 1] - 2.0 * u[i] + u[i - 1]);
+    }
+    un[1] = tb;
+    un[imax] = tb;
+  }
+
+  for (int i = 1; i <= imax; i++) Tout[i] = un[i];
+}
+
+void implicit_interior_one_step(double F, double tb, double t0,
+                                       int imax, double u_full[]) {
+  int N = imax - 2;
+
+  std::vector<double> a(N + 1), b(N + 1), c(N + 1), d(N + 1), u_int(N + 1);
+
+  u_full[1] = tb;
+  u_full[imax] = tb;
+  for (int j = 1; j <= N; j++) u_full[j + 1] = t0;
+
+  for (int j = 1; j <= N; j++) {
+    d[j] = 1.0 + 2.0 * F;
+    a[j] = -F;
+    b[j] = -F;
+  }
+  b[1] = 0.0;
+  a[N] = 0.0;
+
+  for (int j = 1; j <= N; j++) c[j] = u_full[j + 1];
+  c[1] += F * tb;
+  c[N] += F * tb;
+
+  thomasTriDiagonal(N, a.data(), b.data(), c.data(), d.data(), u_int.data());
+
+  u_full[1] = tb;
+  u_full[imax] = tb;
+  for (int j = 1; j <= N; j++) u_full[j + 1] = u_int[j];
+}
+
+void DufortFrankel(int nmax, double F, double tb, double t0,
+                   int imax, double Tout[]) {
+  const double dval = 2.0 * F;
+
+  std::vector<double> un_m1(imax + 1), un(imax + 1),
+                      un_p1(imax + 1), u1(imax + 1);
+
+  un_m1[1] = tb;
+  un_m1[imax] = tb;
+  for (int i = 2; i <= imax - 1; i++) un_m1[i] = t0;
+
+  implicit_interior_one_step(F, tb, t0, imax, u1.data());
+  un = u1;
+
+  for (int step = 1; step <= nmax - 1; step++) {
+    for (int i = 2; i <= imax - 1; i++) {
+      un_p1[i] =
+        ((1.0 - dval) * un_m1[i] + dval * (un[i + 1] + un[i - 1]))
+        / (1.0 + dval);
+    }
+    un_p1[1] = tb;
+    un_p1[imax] = tb;
+
+    un_m1 = un;
+    un    = un_p1;
+  }
+
+  for (int i = 1; i <= imax; i++) Tout[i] = un[i];
+}
+
+void FTCS_implicit(int nmax, double F, double tb, double t0,
+                   int imax, double Tout[]) {
+  std::vector<double> a(imax + 1), b(imax + 1),
+                      c(imax + 1), d(imax + 1), un(imax + 1);
+
+  un[1] = tb;
+  un[imax] = tb;
+  for (int i = 2; i <= imax - 1; i++) un[i] = t0;
+
+  d[1] = 1.0;
+  d[imax] = 1.0;
+
+  for (int i = 2; i <= imax - 1; i++) {
+    d[i] = 1.0 + 2.0 * F;
+    a[i] = -F;
+    b[i] = -F;
+  }
+
+  for (int step = 1; step <= nmax; step++) {
+    c[1] = tb;
+    c[imax] = tb;
+    for (int i = 2; i <= imax - 1; i++) c[i] = un[i];
+
+    thomasTriDiagonal(imax, a.data(), b.data(), c.data(), d.data(), un.data());
+  }
+
+  for (int i = 1; i <= imax; i++) Tout[i] = un[i];
+}
+
+void CrankNicolson(int nmax, double F, double tb, double t0,
+                   int imax, double Tout[]) {
+  const double dnc = F / 2.0;
+
+  std::vector<double> a(imax + 1), b(imax + 1),
+                      c(imax + 1), d(imax + 1),
+                      u0(imax + 1), uhalf(imax + 1);
+
+  u0[1] = tb;
+  u0[imax] = tb;
+  for (int i = 2; i <= imax - 1; i++) u0[i] = t0;
+
+  d[1] = 1.0;
+  d[imax] = 1.0;
+
+  for (int i = 2; i <= imax - 1; i++) {
+    d[i] = 1.0 + 2.0 * dnc;
+    a[i] = -dnc;
+    b[i] = -dnc;
+  }
+
+  for (int step = 1; step <= nmax; step++) {
+    uhalf[1] = tb;
+    uhalf[imax] = tb;
+
+    for (int i = 2; i <= imax - 1; i++) {
+      uhalf[i] = u0[i] + dnc * (u0[i + 1] - 2.0 * u0[i] + u0[i - 1]);
+    }
+
+    c[1] = tb;
+    c[imax] = tb;
+    for (int i = 2; i <= imax - 1; i++) c[i] = uhalf[i];
+
+    thomasTriDiagonal(imax, a.data(), b.data(), c.data(), d.data(), u0.data());
+
+    u0[1] = tb;
+    u0[imax] = tb;
+  }
+
+  for (int i = 1; i <= imax; i++) Tout[i] = u0[i];
 }
