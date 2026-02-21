@@ -1,0 +1,408 @@
+!                                                                 =                          =                 = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+! Heat equation 1D (multiple schemes)  Plain Fortran 95 version
+! Uses 1-based indexing: valid indices are 1..imax
+! Single-file, no modules, no OOP
+!
+! Added: compare_error_schemes() and convergence_study()
+! Notes:
+!   - compare_error_schemes reads the exact + scheme files produced by sim()
+!     and writes a simple compare/error_schemes_*.txt file with columns:
+!       x  err_exp  err_imp  err_df  err_cn  (err                 = scheme - exact)
+!   - convergence_study writes data/convergence_tXXX.txt like Python
+!     (dt, L2..., Linf...), and also writes compare/convergence_plot_*.txt
+!     with dt and errors to plot externally (gnuplot/python).
+!                                                                 =                          =                 = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+program heat1d_multi
+  implicit none
+  integer, parameter :: dp                                        = selected_real_kind(15, 300)
+
+  integer :: imax
+  real(dp) :: dx, dt, alpha, t0, tb, Fnum
+
+  imax                                                            = 21
+  dx                                                              = 0.05_dp
+  dt                                                              = 0.01_dp
+  alpha                                                           = 0.1_dp
+  t0                                                              = 100.0_dp
+  tb                                                              = 300.0_dp
+
+  Fnum                                                            = (alpha * dt) / (dx * dx)
+
+  call sim(dx, dt, imax, t0, tb, Fnum)
+
+  print *, "Comparing schemes errors vs exact at t                =0.4"
+  call compare_error_schemes(dt, 0.4_dp)
+
+  ! Example dt list for convergence study (same as your Python commented list)
+  ! print *, "Convergence study at t                              =0.4"
+  ! call convergence_study(dx, imax, alpha, t0, tb, 0.4_dp)
+
+  print *, "Done."
+
+contains
+
+  subroutine ensure_dir(path)
+    implicit none
+    character(len                                                 =*), intent(in) :: path
+    integer :: ios
+    call execute_command_line("mkdir -p " // trim(path), exitstat =ios)
+  end subroutine ensure_dir
+
+  subroutine ensure_data_dir()
+    implicit none
+    call ensure_dir("data")
+  end subroutine ensure_data_dir
+
+  subroutine ensure_compare_dir()
+    implicit none
+    call ensure_dir("compare")
+  end subroutine ensure_compare_dir
+
+  subroutine make_dt_tag(dt, tag)
+    implicit none
+    real(dp), intent(in) :: dt
+    character(len                                                 =3), intent(out) :: tag
+    integer :: code
+    code                                                          = nint(dt * 100.0_dp)
+    write(tag, '(I3.3)') code
+  end subroutine make_dt_tag
+
+  subroutine make_t_tag(t, tag3)
+    implicit none
+    real(dp), intent(in) :: t
+    character(len                                                 =3), intent(out) :: tag3
+    integer :: code
+    code                                                          = nint(t * 100.0_dp)   ! t =0.40 -> 040
+    write(tag3, '(I3.3)') code
+  end subroutine make_t_tag
+
+  real(dp) function err_L2(imax, a, b)
+    implicit none
+    integer, intent(in) :: imax
+    real(dp), intent(in) :: a(1:imax), b(1:imax)
+    integer :: i
+    real(dp) :: s, e
+    s                                                             = 0.0_dp
+    do i                                                          = 1, imax
+      e                                                           = a(i) - b(i)
+      s                                                           = s + e*e
+    end do
+    err_L2                                                        = sqrt(s / real(imax, dp))
+  end function err_L2
+
+  real(dp) function err_Linf(imax, a, b)
+    implicit none
+    integer, intent(in) :: imax
+    real(dp), intent(in) :: a(1:imax), b(1:imax)
+    integer :: i
+    real(dp) :: e, m
+    m                                                             = 0.0_dp
+    do i                                                          = 1, imax
+      e                                                           = abs(a(i) - b(i))
+      if (e > m) m                                                = e
+    end do
+    err_Linf                                                      = m
+  end function err_Linf
+
+  ! --------------------------------------------------------------------------
+  ! Thomas tridiagonal solver (matches your Python)
+  ! --------------------------------------------------------------------------
+  subroutine thomasTriDiagonal(N, a, b, c, d, u)
+    implicit none
+    integer, intent(in) :: N
+    real(dp), intent(in)  :: a(1:N), b(1:N), d(1:N)
+    real(dp), intent(in)  :: c(1:N)
+    real(dp), intent(out) :: u(1:N)
+
+    real(dp), allocatable :: dprime(:), cprime(:)
+    integer :: i
+
+    allocate(dprime(1:N), cprime(1:N))
+
+    dprime(1)                                                     = d(1)
+    cprime(1)                                                     = c(1)
+
+    do i                                                          = 2, N
+      dprime(i)                                                   = d(i) - (b(i) * a(i-1)) / dprime(i-1)
+      cprime(i)                                                   = c(i) - (cprime(i-1) * b(i)) / dprime(i-1)
+    end do
+
+    u(N)                                                          = cprime(N) / dprime(N)
+
+    do i                                                          = N-1, 1, -1
+      u(i)                                                        = (cprime(i) - a(i) * u(i+1)) / dprime(i)
+    end do
+
+    deallocate(dprime, cprime)
+  end subroutine thomasTriDiagonal
+
+  ! --------------------------------------------------------------------------
+  ! Exact solution (series)
+  ! --------------------------------------------------------------------------
+  subroutine exact_solution_profile(imax, x, t, alpha, L, tb, t0, nterms, Tout)
+    implicit none
+    integer, intent(in) :: imax, nterms
+    real(dp), intent(in) :: x(1:imax), t, alpha, L, tb, t0
+    real(dp), intent(out) :: Tout(1:imax)
+
+    integer :: i, n
+    real(dp) :: pi, A, s, xi, coeff, k
+
+    pi                                                            = 4.0_dp * atan(1.0_dp)
+    A                                                             = (t0 - tb)
+
+    do i                                                          = 1, imax
+      s                                                           = 0.0_dp
+      xi                                                          = x(i)
+      do n                                                        = 1, nterms
+        coeff                                                     = (2.0_dp * A / (real(n,dp) * pi)) * (1.0_dp - (-1.0_dp)**n)
+        if (coeff                                                 =                          = 0.0_dp) cycle
+        k                                                         = real(n,dp) * pi / L
+        s                                                         = s + coeff * sin(k*xi) * exp(-alpha * k*k * t)
+      end do
+      Tout(i)                                                     = tb + s
+    end do
+
+    Tout(1)                                                       = tb
+    Tout(imax)                                                    = tb
+  end subroutine exact_solution_profile
+
+  ! --------------------------------------------------------------------------
+  ! FTCS explicit
+  ! --------------------------------------------------------------------------
+  subroutine FTCS_explicit(nmax, Fnum, tb, t0, imax, out_un)
+    implicit none
+    integer, intent(in) :: nmax, imax
+    real(dp), intent(in) :: Fnum, tb, t0
+    real(dp), intent(out) :: out_un(1:imax)
+
+    real(dp), allocatable :: u(:), un(:)
+    integer :: i, n
+
+    allocate(u(1:imax), un(1:imax))
+
+    do i                                                          = 2, imax-1
+      u(i)                                                        = t0
+      un(i)                                                       = t0
+    end do
+    u(1)                                                          = tb; u(imax)              = tb
+    un(1)                                                         = tb; un(imax)             = tb
+
+    do n                                                          = 1, nmax
+      do i                                                        = 1, imax
+        u(i)                                                      = un(i)
+      end do
+
+      do i                                                        = 2, imax-1
+        un(i)                                                     = u(i) + Fnum * (u(i+1) - 2.0_dp*u(i) + u(i-1))
+      end do
+      un(1)                                                       = tb
+      un(imax)                                                    = tb
+    end do
+
+    do i                                                          = 1, imax
+      out_un(i)                                                   = un(i)
+    end do
+
+    deallocate(u, un)
+  end subroutine FTCS_explicit
+
+  ! --------------------------------------------------------------------------
+  ! Helper for DufortFrankel: implicit interior
+  ! --------------------------------------------------------------------------
+  subroutine FTCS_return_implicit_interior(nmax, Fnum, tb, t0, imax, u_full)
+    implicit none
+    integer, intent(in) :: nmax, imax
+    real(dp), intent(in) :: Fnum, tb, t0
+    real(dp), intent(inout) :: u_full(1:imax)
+
+    integer :: N, j, i, tstep
+    real(dp), allocatable :: a(:), b(:), c(:), d(:), u_int(:)
+
+    N                                                             = imax - 2
+    allocate(a(1:N), b(1:N), c(1:N), d(1:N), u_int(1:N))
+
+    u_full(1)                                                     = tb
+    u_full(imax)                                                  = tb
+    do i                                                          = 2, imax-1
+      u_full(i)                                                   = t0
+    end do
+
+    do j                                                          = 1, N
+      d(j)                                                        = 1.0_dp + 2.0_dp * Fnum
+      a(j)                                                        = -Fnum
+      b(j)                                                        = -Fnum
+    end do
+    b(1)                                                          = 0.0_dp
+    a(N)                                                          = 0.0_dp
+
+    do tstep                                                      = 1, nmax
+      do j                                                        = 1, N
+        i                                                         = j + 1
+        c(j)                                                      = u_full(i)
+      end do
+      c(1)                                                        = c(1) + Fnum * tb
+      c(N)                                                        = c(N) + Fnum * tb
+
+      call thomasTriDiagonal(N, a, b, c, d, u_int)
+
+      u_full(1)                                                   = tb
+      u_full(imax)                                                = tb
+      do j                                                        = 1, N
+        i                                                         = j + 1
+        u_full(i)                                                 = u_int(j)
+      end do
+    end do
+
+    deallocate(a, b, c, d, u_int)
+  end subroutine FTCS_return_implicit_interior
+
+  ! --------------------------------------------------------------------------
+  ! Dufort-Frankel
+  ! --------------------------------------------------------------------------
+  subroutine DufortFrankel(nmax, Fnum, tb, t0, imax, out_un)
+    implicit none
+    integer, intent(in) :: nmax, imax
+    real(dp), intent(in) :: Fnum, tb, t0
+    real(dp), intent(out) :: out_un(1:imax)
+
+    real(dp) :: dval
+    real(dp), allocatable :: un_m1(:), un(:), un_p1(:), u1(:)
+    integer :: i, n
+
+    dval                                                          = 2.0_dp * Fnum
+
+    allocate(un_m1(1:imax), un(1:imax), un_p1(1:imax), u1(1:imax))
+
+    un_m1(1)                                                      = tb
+    un_m1(imax)                                                   = tb
+    do i                                                          = 2, imax-1
+      un_m1(i)                                                    = t0
+    end do
+
+    call FTCS_return_implicit_interior(1, Fnum, tb, t0, imax, u1)
+    do i                                                          = 1, imax
+      un(i)                                                       = u1(i)
+    end do
+
+    do n                                                          = 1, nmax-1
+      do i                                                        = 2, imax-1
+        un_p1(i)                                                  = ((1.0_dp - dval) * un_m1(i) + dval * (un(i+1) + un(i-1))) / (1.0_dp + dval)
+      end do
+      un_p1(1)                                                    = tb
+      un_p1(imax)                                                 = tb
+
+      do i                                                        = 1, imax
+        un_m1(i)                                                  = un(i)
+        un(i)                                                     = un_p1(i)
+      end do
+    end do
+
+    do i                                                          = 1, imax
+      out_un(i)                                                   = un(i)
+    end do
+
+    deallocate(un_m1, un, un_p1, u1)
+  end subroutine DufortFrankel
+
+  ! --------------------------------------------------------------------------
+  ! FTCS implicit (full system)
+  ! --------------------------------------------------------------------------
+  subroutine FTCS_implicit(nmax, Fnum, tb, t0, imax, out_un)
+    implicit none
+    integer, intent(in) :: nmax, imax
+    real(dp), intent(in) :: Fnum, tb, t0
+    real(dp), intent(out) :: out_un(1:imax)
+
+    real(dp), allocatable :: a(:), b(:), c(:), d(:), un(:)
+    integer :: i, tstep
+
+    allocate(a(1:imax), b(1:imax), c(1:imax), d(1:imax), un(1:imax))
+
+    un(1)                                                         = tb
+    un(imax)                                                      = tb
+    do i                                                          = 2, imax-1
+      un(i)                                                       = t0
+    end do
+
+    d(1)                                                          = 1.0_dp; a(1)             = 0.0_dp; b(1)    = 0.0_dp
+    d(imax)                                                       = 1.0_dp; a(imax)          = 0.0_dp; b(imax) = 0.0_dp
+
+    do i                                                          = 2, imax-1
+      d(i)                                                        = 1.0_dp + 2.0_dp * Fnum
+      a(i)                                                        = -Fnum
+      b(i)                                                        = -Fnum
+    end do
+
+    do tstep                                                      = 1, nmax
+      c(1)                                                        = tb
+      c(imax)                                                     = tb
+      do i                                                        = 2, imax-1
+        c(i)                                                      = un(i)
+      end do
+      call thomasTriDiagonal(imax, a, b, c, d, un)
+    end do
+
+    do i                                                          = 1, imax
+      out_un(i)                                                   = un(i)
+    end do
+
+    deallocate(a, b, c, d, un)
+  end subroutine FTCS_implicit
+
+  ! --------------------------------------------------------------------------
+  ! Crank-Nicolson
+  ! --------------------------------------------------------------------------
+  subroutine CrankNicolson(nmax, Fnum, tb, t0, imax, out_un)
+    implicit none
+    integer, intent(in) :: nmax, imax
+    real(dp), intent(in) :: Fnum, tb, t0
+    real(dp), intent(out) :: out_un(1:imax)
+
+    real(dp) :: dNC
+    real(dp), allocatable :: a(:), b(:), c(:), d(:), u0(:), uhalf(:)
+    integer :: i, n
+
+    dNC                                                           = Fnum / 2.0_dp
+
+    allocate(a(1:imax), b(1:imax), c(1:imax), d(1:imax), u0(1:imax), uhalf(1:imax))
+
+    u0(1)                                                         = tb
+    u0(imax)                                                      = tb
+    do i                                                          = 2, imax-1
+      u0(i)                                                       = t0
+    end do
+
+    uhalf(1)                                                      = tb
+    uhalf(imax)                                                   = tb
+
+    d(1)                                                          = 1.0_dp; a(1)             = 0.0_dp; b(1)    = 0.0_dp
+    d(imax)                                                       = 1.0_dp; a(imax)          = 0.0_dp; b(imax) = 0.0_dp
+
+    do i                                                          = 2, imax-1
+      d(i)                                                        = 1.0_dp + 2.0_dp * dNC
+      a(i)                                                        = -dNC
+      b(i)                                                        = -dNC
+    end do
+
+    do n                                                          = 1, nmax
+      uhalf(1)                                                    = tb
+      uhalf(imax)                                                 = tb
+      do i                                                        = 2, imax-1
+        uhalf(i)                                                  = u0(i) + dNC * (u0(i+1) - 2.0_dp*u0(i) + u0(i-1))
+      end do
+
+      c(1)                                                        = tb
+      c(imax)                                                     = tb
+      do i                                                        = 2, imax-1
+        c(i)                                                      = uhalf(i)
+      end do
+
+      call thomasTriDiagonal(imax, a, b, c, d, u0)
+
+      u0(1)                                                       = tb
+      u0(imax)                                                    = tb
+    end do
+
+    do i                                                          = 1, imax
+      out_un_

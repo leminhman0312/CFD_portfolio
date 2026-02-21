@@ -1,5 +1,5 @@
 # Grand CFD Portfolio  
-### Numerical Methods • Stability Analysis • Convergence Verification • HPC Foundations  
+### Numerical Methods • Stability Analysis • Convergence Verification • HPC  
 
 **Author:** Max Minh Le  
 

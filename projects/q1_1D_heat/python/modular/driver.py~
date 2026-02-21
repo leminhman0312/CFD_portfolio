@@ -1,0 +1,189 @@
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+from io_utils import ensure_data_dir, ensure_compare_dir,make_dt_tag
+
+from schemes import FTCS_explicit, DufortFrankel, FTCS_implicit,CrankNicolson
+
+from exact import exact_solution_profile
+
+from norms import err_L2, err_Linf
+
+
+# ============================================================================
+# Simulation driver (writes data files like the C++ sim)
+# ============================================================================
+def sim(delta_x: float, delta_t: float, imax: int,
+        t0: float, tboundary: float, F_num: float) -> None:
+    ensure_data_dir()
+
+    tag = make_dt_tag(delta_t)
+
+    f_explicit = os.path.join("data", f"ftcs_explicit_{tag}.txt")
+    f_dufort = os.path.join("data", f"dufort_{tag}.txt")
+    f_implicit = os.path.join("data", f"ftcs_implicit_{tag}.txt")
+    f_cn = os.path.join("data", f"cn_{tag}.txt")
+    f_exact = os.path.join("data", f"exact_{tag}.txt")
+
+    f_err_exp = os.path.join("data", f"error_ftcs_explicit_{tag}.txt")
+    f_err_imp = os.path.join("data", f"error_ftcs_implicit_{tag}.txt")
+    f_err_df = os.path.join("data", f"error_dufort_{tag}.txt")
+    f_err_cn = os.path.join("data", f"error_cn_{tag}.txt")
+
+    x_vector = np.zeros(imax + 1, dtype=float)
+    x_vector[1] = 0.0
+    for i in range(1, imax):
+        x_vector[i + 1] = x_vector[i] + delta_x
+
+    L = (imax - 1) * delta_x
+    alpha = F_num * (delta_x * delta_x) / delta_t
+
+    with open(f_explicit, "w", encoding="utf-8") as out_exp, \
+         open(f_dufort, "w", encoding="utf-8") as out_df, \
+         open(f_implicit, "w", encoding="utf-8") as out_imp, \
+         open(f_cn, "w", encoding="utf-8") as out_cn, \
+         open(f_exact, "w", encoding="utf-8") as out_ex, \
+         open(f_err_exp, "w", encoding="utf-8") as out_eexp, \
+         open(f_err_imp, "w", encoding="utf-8") as out_eimp, \
+         open(f_err_df, "w", encoding="utf-8") as out_edf, \
+         open(f_err_cn, "w", encoding="utf-8") as out_ecn:
+
+        for k in range(0, 5):
+            t_target = 0.1 * k
+            nmax = int(round(t_target / delta_t))
+
+            T_exact = np.zeros(imax + 1, dtype=float)
+            T_explicit = np.zeros(imax + 1, dtype=float)
+            T_dufort = np.zeros(imax + 1, dtype=float)
+            T_implicit = np.zeros(imax + 1, dtype=float)
+            T_cn = np.zeros(imax + 1, dtype=float)
+
+            FTCS_explicit(nmax, F_num, tboundary, t0, imax, T_explicit)
+            DufortFrankel(nmax, F_num, tboundary, t0, imax, T_dufort)
+            FTCS_implicit(nmax, F_num, tboundary, t0, imax, T_implicit)
+            CrankNicolson(nmax, F_num, tboundary, t0, imax, T_cn)
+
+            exact_solution_profile(imax, x_vector, t_target, alpha, L, tboundary, t0, 200, T_exact)
+
+            header = f"# t = {t_target:.2f} hr\n# x\tT\n"
+            out_exp.write(header)
+            out_df.write(header)
+            out_imp.write(header)
+            out_cn.write(header)
+            out_ex.write(header)
+
+            eheader = f"# t = {t_target:.2f} hr\n# x\terr\n"
+            out_eexp.write(eheader)
+            out_eimp.write(eheader)
+            out_edf.write(eheader)
+            out_ecn.write(eheader)
+
+            for i in range(1, imax + 1):
+                out_exp.write(f"{x_vector[i]:.6f}\t{T_explicit[i]:.6f}\n")
+                out_df.write(f"{x_vector[i]:.6f}\t{T_dufort[i]:.6f}\n")
+                out_imp.write(f"{x_vector[i]:.6f}\t{T_implicit[i]:.6f}\n")
+                out_cn.write(f"{x_vector[i]:.6f}\t{T_cn[i]:.6f}\n")
+                out_ex.write(f"{x_vector[i]:.6f}\t{T_exact[i]:.6f}\n")
+
+                out_eexp.write(f"{x_vector[i]:.6f}\t{(T_explicit[i] - T_exact[i]):.6f}\n")
+                out_eimp.write(f"{x_vector[i]:.6f}\t{(T_implicit[i] - T_exact[i]):.6f}\n")
+                out_edf.write(f"{x_vector[i]:.6f}\t{(T_dufort[i] - T_exact[i]):.6f}\n")
+                out_ecn.write(f"{x_vector[i]:.6f}\t{(T_cn[i] - T_exact[i]):.6f}\n")
+
+            out_exp.write("\n\n")
+            out_df.write("\n\n")
+            out_imp.write("\n\n")
+            out_cn.write("\n\n")
+            out_ex.write("\n\n")
+
+            out_eexp.write("\n\n")
+            out_eimp.write("\n\n")
+            out_edf.write("\n\n")
+            out_ecn.write("\n\n")
+
+
+
+def convergence_study(delta_x: float, imax: int, alpha: float, t0: float,
+                      tboundary: float, t_target: float,
+                      dt_list: list[float]) -> None:
+    ensure_data_dir()
+    ensure_compare_dir()
+
+    outdata = os.path.join("data", f"convergence_t{int(round(t_target * 100.0)):03d}.txt")
+
+    with open(outdata, "w", encoding="utf-8") as f:
+        f.write(f"# convergence at t = {t_target:.2f} hr\n")
+        f.write("# dt\tL2_exp\tL2_imp\tL2_df\tL2_cn\tLinf_exp\tLinf_imp\tLinf_df\tLinf_cn\n")
+
+        x_vector = np.zeros(imax + 1, dtype=float)
+        x_vector[1] = 0.0
+        for i in range(1, imax):
+            x_vector[i + 1] = x_vector[i] + delta_x
+
+        L = (imax - 1) * delta_x
+
+        for dt in dt_list:
+            F_num = (alpha * dt) / (delta_x * delta_x)
+            nmax = int(round(t_target / dt))
+
+            T_exp = np.zeros(imax + 1, dtype=float)
+            T_imp = np.zeros(imax + 1, dtype=float)
+            T_df = np.zeros(imax + 1, dtype=float)
+            T_cn = np.zeros(imax + 1, dtype=float)
+            T_ex = np.zeros(imax + 1, dtype=float)
+
+            FTCS_explicit(nmax, F_num, tboundary, t0, imax, T_exp)
+            FTCS_implicit(nmax, F_num, tboundary, t0, imax, T_imp)
+            DufortFrankel(nmax, F_num, tboundary, t0, imax, T_df)
+            CrankNicolson(nmax, F_num, tboundary, t0, imax, T_cn)
+
+            exact_solution_profile(imax, x_vector, t_target, alpha, L, tboundary, t0, 200, T_ex)
+
+            L2_exp = err_L2(imax, T_exp, T_ex)
+            L2_imp = err_L2(imax, T_imp, T_ex)
+            L2_df = err_L2(imax, T_df, T_ex)
+            L2_cn = err_L2(imax, T_cn, T_ex)
+
+            Li_exp = err_Linf(imax, T_exp, T_ex)
+            Li_imp = err_Linf(imax, T_imp, T_ex)
+            Li_df = err_Linf(imax, T_df, T_ex)
+            Li_cn = err_Linf(imax, T_cn, T_ex)
+
+            f.write(
+                f"{dt:.6f}\t{L2_exp:.10e}\t{L2_imp:.10e}\t{L2_df:.10e}\t{L2_cn:.10e}\t"
+                f"{Li_exp:.10e}\t{Li_imp:.10e}\t{Li_df:.10e}\t{Li_cn:.10e}\n"
+            )
+
+    data = np.loadtxt(outdata, comments="#")
+    dt = data[:, 0]
+    L2_exp, L2_imp, L2_df, L2_cn = data[:, 1], data[:, 2], data[:, 3], data[:, 4]
+    Li_exp, Li_imp, Li_df, Li_cn = data[:, 5], data[:, 6], data[:, 7], data[:, 8]
+
+    plt.figure()
+    plt.loglog(dt, L2_exp, marker="o", label="L2 exp")
+    plt.loglog(dt, L2_imp, marker="o", label="L2 imp")
+    plt.loglog(dt, L2_df, marker="o", label="L2 df")
+    plt.loglog(dt, L2_cn, marker="o", label="L2 cn")
+    plt.gca().invert_xaxis()
+    plt.title(f"Convergence at t={t_target:.2f}")
+    plt.xlabel("dt")
+    plt.ylabel("L2 error")
+    plt.grid(True, which="both")
+    plt.legend()
+    outpng = os.path.join("plot", f"L2_convergence_t{t_target:.2f}.png")
+    plt.savefig(outpng, dpi=150)
+
+    plt.figure()
+    plt.loglog(dt, Li_exp, marker="o", label="Li exp")
+    plt.loglog(dt, Li_imp, marker="o", label="Li imp")
+    plt.loglog(dt, Li_df, marker="o", label="Li df")
+    plt.loglog(dt, Li_cn, marker="o", label="Li cn")
+    plt.gca().invert_xaxis()
+    plt.title(f"Convergence at t={t_target:.2f}")
+    plt.xlabel("dt")
+    plt.ylabel("Linfinity error")
+    plt.grid(True, which="both")
+    plt.legend()
+    outpng = os.path.join("plot", f"L_inf_convergence_t{t_target:.2f}.png")
+    plt.savefig(outpng, dpi=150)

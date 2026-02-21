@@ -1,0 +1,454 @@
+// ============================================================================
+// 2D Heat Conduction Solver
+//
+// Solves the transient two dimensional heat equation on a rectangular domain
+//
+//     ∂T/∂t = α ( ∂²T/∂x² + ∂²T/∂y² )
+//
+// Numerical methods implemented
+//   FTCS explicit scheme
+//   Implicit ADI scheme using tridiagonal Thomas solvers
+//
+// Logic for explicit runs
+//   If fx plus fy is stable, run explicit once with the given dt
+//   If fx plus fy is unstable, run explicit twice
+//     One run with the given dt which may blow up
+//     One run with the computed safe dt
+//
+// Every run writes a data file
+// Every run makes a plot
+// ============================================================================
+
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
+
+#include <sys/stat.h>
+#include <sys/types.h>
+
+
+using std::vector;
+
+// Directories
+void ensure_dir(const char* name) {
+  struct stat st;
+  if (stat(name, &st) != 0) {
+    mkdir(name, 0755);
+  }
+}
+
+void ensure_project_dirs() {
+  ensure_dir("data");
+  ensure_dir("plot");
+  ensure_dir("gnuplot_scripts");
+}
+
+
+
+// Prototypes
+vector<vector<double>> initializeField(int imax, int jmax,
+                                       double t0, double t1, double t2,
+                                       double t3, double t4);
+
+vector<vector<double>> FTCS_Explicit(const vector<vector<double>>& u0,
+                                     double t_end,
+                                     double deltax, double deltay,
+                                     double dt,
+                                     double alpha,
+                                     double t1, double t2, double t3, double t4);
+
+vector<vector<double>> FTCS_implicit_ADI(const vector<vector<double>>& u0,
+                                        int nmax,
+                                        double deltax, double deltay,
+                                        double dt,
+                                        double alpha,
+                                        double t1, double t2, double t3, double t4);
+
+void thomasTriDiagonal(int n,
+                       const vector<double>& a,
+                       const vector<double>& b,
+                       vector<double>& c,
+                       const vector<double>& d,
+                       vector<double>& u);
+
+void write_field_xyz(const char* filename,
+                     const vector<vector<double>>& u,
+                     double deltax,
+                     double deltay);
+
+void plotContourMatlabLike(const char* datafile,
+                           const char* outpng,
+                           double time_hr,
+                           const char* scheme);
+
+int main() {
+
+  ensure_project_dirs();
+
+  const double t_end = 0.5;
+
+  const double deltax = 0.1;
+  const double deltay = 0.1;
+  const double alpha  = 0.645;
+
+  const double dt_implicit = 0.01;
+  const double dt_explicit_given = 0.01;
+
+  // domain
+  const double xmin = 0.0;
+  const double xmax = 3.5;
+  const double ymin = 0.0;
+  const double ymax = 3.5;
+
+  const int imax = (int)std::ceil((xmax - xmin) / deltax + 1.0);
+  const int jmax = (int)std::ceil((ymax - ymin) / deltay + 1.0);
+
+  // boundary and initial values
+  const double t0 = 0.0;
+  const double t1 = 200.0;
+  const double t2 = 200.0;
+  const double t3 = 0.0;
+  const double t4 = 0.0;
+
+  const int nmax_implicit = (int)std::lround(t_end / dt_implicit);
+
+  auto u0 = initializeField(imax, jmax, t0, t1, t2, t3, t4);
+
+  write_field_xyz("data/initial.dat", u0, deltax, deltay);
+  plotContourMatlabLike("data/initial.dat", "plot/contour_initial.png", 0.0, "Initial conditions");
+
+  // implicit
+  auto u_implicit = FTCS_implicit_ADI(u0, nmax_implicit, deltax, deltay, dt_implicit,
+                                      alpha, t1, t2, t3, t4);
+
+  write_field_xyz("data/implicit.dat", u_implicit, deltax, deltay);
+  plotContourMatlabLike("data/implicit.dat", "plot/contour_implicit.png", t_end, "Implicit ADI");
+
+  // explicit stability for given dt
+  const double fx_given = alpha * dt_explicit_given / (deltax * deltax);
+  const double fy_given = alpha * dt_explicit_given / (deltay * deltay);
+  const double sum_given = fx_given + fy_given;
+
+  std::printf("Explicit given dt check\n");
+  std::printf("  dt = %.6e\n", dt_explicit_given);
+  std::printf("  fx = %.6e\n", fx_given);
+  std::printf("  fy = %.6e\n", fy_given);
+  std::printf("  fx + fy = %f\n\n", sum_given);
+
+  if (sum_given <= 0.5) {
+
+    auto u_explicit = FTCS_Explicit(u0, t_end, deltax, deltay, dt_explicit_given,
+                                    alpha, t1, t2, t3, t4);
+
+    write_field_xyz("data/explicit.dat", u_explicit, deltax, deltay);
+    plotContourMatlabLike("data/explicit.dat", "plot/contour_explicit.png", t_end, "Explicit FTCS");
+
+  } else {
+
+    // safe dt
+    const double dt_safe =
+      0.5 / (alpha * (1.0/(deltax*deltax) + 1.0/(deltay*deltay)));
+
+    const double fx_safe = alpha * dt_safe / (deltax * deltax);
+    const double fy_safe = alpha * dt_safe / (deltay * deltay);
+    const double sum_safe = fx_safe + fy_safe;
+
+    std::printf("fx + fy > 0.5. Calculating safe dt\n");
+    std::printf("Explicit safe dt\n");
+    std::printf("  dt = %.6e\n", dt_safe);
+    std::printf("  fx = %.6e\n", fx_safe);
+    std::printf("  fy = %.6e\n", fy_safe);
+    std::printf("  fx plus fy = %f\n\n", sum_safe);
+
+    // run explicit with the unstable dt
+    auto u_explicit_fail = FTCS_Explicit(u0, t_end, deltax, deltay, dt_explicit_given,
+                                         alpha, t1, t2, t3, t4);
+
+    write_field_xyz("data/explicit_failed.dat", u_explicit_fail, deltax, deltay);
+    plotContourMatlabLike("data/explicit_failed.dat", "plot/contour_explicit_failed.png",
+                          t_end, "Explicit FTCS unstable dt");
+
+    // run explicit with safe dt
+    auto u_explicit_safe = FTCS_Explicit(u0, t_end, deltax, deltay, dt_safe,
+                                         alpha, t1, t2, t3, t4);
+
+    write_field_xyz("data/explicit_safe.dat", u_explicit_safe, deltax, deltay);
+    plotContourMatlabLike("data/explicit_safe.dat", "plot/contour_explicit_safe.png",
+                          t_end, "Explicit FTCS safe dt");
+  }
+
+  std::printf("Done\n");
+  return 0;
+}
+
+// Initialize
+vector<vector<double>> initializeField(int imax, int jmax,
+                                       double t0, double t1, double t2,
+                                       double t3, double t4) {
+
+  vector<vector<double>> u(imax + 1, vector<double>(jmax + 1, t0));
+
+  for (int j = 1; j <= jmax; j++) {
+    u[1][j]    = t2;
+    u[imax][j] = t4;
+  }
+  for (int i = 1; i <= imax; i++) {
+    u[i][1]    = t1;
+    u[i][jmax] = t3;
+  }
+
+  return u;
+}
+
+// Explicit FTCS
+vector<vector<double>> FTCS_Explicit(const vector<vector<double>>& u0,
+                                     double t_end,
+                                     double deltax, double deltay,
+                                     double dt,
+                                     double alpha,
+                                     double t1, double t2, double t3, double t4) {
+
+  vector<vector<double>> u = u0;
+
+  const int imax = (int)u.size() - 1;
+  const int jmax = (int)u[1].size() - 1;
+
+  vector<vector<double>> u_new(imax + 1, vector<double>(jmax + 1, 0.0));
+
+  int nfull = (int)std::floor(t_end / dt);
+  double t_full = nfull * dt;
+  double dt_last = t_end - t_full;
+
+  int nsteps = nfull;
+  if (dt_last > 0.0) nsteps = nfull + 1;
+
+  for (int n = 1; n <= nsteps; n++) {
+
+    double dt_n = dt;
+    if (n == nsteps && dt_last > 0.0) dt_n = dt_last;
+
+    const double fx = alpha * dt_n / (deltax * deltax);
+    const double fy = alpha * dt_n / (deltay * deltay);
+
+    for (int i = 1; i <= imax; i++) {
+      for (int j = 1; j <= jmax; j++) {
+        u_new[i][j] = u[i][j];
+      }
+    }
+
+    for (int i = 2; i <= imax - 1; i++) {
+      for (int j = 2; j <= jmax - 1; j++) {
+        u_new[i][j] =
+          (1.0 - 2.0 * fx - 2.0 * fy) * u[i][j]
+          + fx * (u[i + 1][j] + u[i - 1][j])
+          + fy * (u[i][j + 1] + u[i][j - 1]);
+      }
+    }
+
+    for (int j = 1; j <= jmax; j++) {
+      u_new[1][j]    = t2;
+      u_new[imax][j] = t4;
+    }
+    for (int i = 1; i <= imax; i++) {
+      u_new[i][1]    = t1;
+      u_new[i][jmax] = t3;
+    }
+
+    u.swap(u_new);
+  }
+
+  return u;
+}
+
+// Implicit ADI
+vector<vector<double>> FTCS_implicit_ADI(const vector<vector<double>>& u0,
+                                        int nmax,
+                                        double deltax, double deltay,
+                                        double dt,
+                                        double alpha,
+                                        double t1, double t2, double t3, double t4) {
+
+  vector<vector<double>> u = u0;
+
+  const int imax = (int)u.size() - 1;
+  const int jmax = (int)u[1].size() - 1;
+
+  vector<vector<double>> u_dummy(imax + 1, vector<double>(jmax + 1, 0.0));
+
+  const double fx = alpha * dt / (deltax * deltax);
+  const double fy = alpha * dt / (deltay * deltay);
+
+  vector<double> ax(imax + 1, 0.0);
+  vector<double> bx(imax + 1, 0.0);
+  vector<double> cx(imax + 1, 0.0);
+  vector<double> dx(imax + 1, 0.0);
+
+  for (int i = 2; i <= imax - 1; i++) {
+    ax[i] = -fx / 2.0;
+    bx[i] = -fx / 2.0;
+    dx[i] =  1.0 + fx;
+  }
+  dx[1] = 1.0;
+  dx[imax] = 1.0;
+
+  vector<double> ay(jmax + 1, 0.0);
+  vector<double> by(jmax + 1, 0.0);
+  vector<double> cy(jmax + 1, 0.0);
+  vector<double> dy(jmax + 1, 0.0);
+
+  for (int j = 2; j <= jmax - 1; j++) {
+    ay[j] = -fy / 2.0;
+    by[j] = -fy / 2.0;
+    dy[j] =  1.0 + fy;
+  }
+  dy[1] = 1.0;
+  dy[jmax] = 1.0;
+
+  for (int n = 1; n <= nmax; n++) {
+
+    for (int j = 1; j <= jmax; j++) {
+      u[1][j]    = t2;
+      u[imax][j] = t4;
+    }
+    for (int i = 1; i <= imax; i++) {
+      u[i][1]    = t1;
+      u[i][jmax] = t3;
+    }
+
+    for (int j = 2; j <= jmax - 1; j++) {
+
+      for (int i = 2; i <= imax - 1; i++) {
+        cx[i] = (1.0 - fy) * u[i][j]
+              + (fy / 2.0) * (u[i][j + 1] + u[i][j - 1]);
+      }
+
+      cx[2]       += (fx / 2.0) * u[1][j];
+      cx[imax - 1] += (fx / 2.0) * u[imax][j];
+
+      vector<double> solx(imax + 1, 0.0);
+      solx[1] = u[1][j];
+      solx[imax] = u[imax][j];
+
+      cx[1] = u[1][j];
+      cx[imax] = u[imax][j];
+
+      thomasTriDiagonal(imax, ax, bx, cx, dx, solx);
+
+      for (int i = 1; i <= imax; i++) {
+        u_dummy[i][j] = solx[i];
+      }
+    }
+
+    for (int j = 1; j <= jmax; j++) {
+      u_dummy[1][j]    = t2;
+      u_dummy[imax][j] = t4;
+    }
+    for (int i = 1; i <= imax; i++) {
+      u_dummy[i][1]    = t1;
+      u_dummy[i][jmax] = t3;
+    }
+
+    for (int i = 2; i <= imax - 1; i++) {
+
+      for (int j = 2; j <= jmax - 1; j++) {
+        cy[j] = (1.0 - fx) * u_dummy[i][j]
+              + (fx / 2.0) * (u_dummy[i + 1][j] + u_dummy[i - 1][j]);
+      }
+
+      cy[2]        += (fy / 2.0) * u_dummy[i][1];
+      cy[jmax - 1]  += (fy / 2.0) * u_dummy[i][jmax];
+
+      vector<double> soly(jmax + 1, 0.0);
+      soly[1] = u_dummy[i][1];
+      soly[jmax] = u_dummy[i][jmax];
+
+      thomasTriDiagonal(jmax, ay, by, cy, dy, soly);
+
+      for (int j = 1; j <= jmax; j++) {
+        u[i][j] = soly[j];
+      }
+    }
+
+    for (int j = 1; j <= jmax; j++) {
+      u[1][j]    = t2;
+      u[imax][j] = t4;
+    }
+    for (int i = 1; i <= imax; i++) {
+      u[i][1]    = t1;
+      u[i][jmax] = t3;
+    }
+  }
+
+  return u;
+}
+
+// Thomas solver
+void thomasTriDiagonal(int n,
+                       const vector<double>& a,
+                       const vector<double>& b,
+                       vector<double>& c,
+                       const vector<double>& d,
+                       vector<double>& u) {
+
+  vector<double> dprime(n + 1, 0.0);
+  vector<double> cprime(n + 1, 0.0);
+
+  dprime[1] = d[1];
+  cprime[1] = c[1];
+
+  for (int i = 2; i <= n; i++) {
+    dprime[i] = d[i] - (b[i] * a[i - 1]) / dprime[i - 1];
+    cprime[i] = c[i] - (cprime[i - 1] * b[i]) / dprime[i - 1];
+  }
+
+  u[n] = cprime[n] / dprime[n];
+
+  for (int i = n - 1; i >= 1; i--) {
+    u[i] = (cprime[i] - a[i] * u[i + 1]) / dprime[i];
+  }
+}
+
+// Write field
+void write_field_xyz(const char* filename,
+                     const vector<vector<double>>& u,
+                     double deltax,
+                     double deltay) {
+
+  const int imax = (int)u.size() - 1;
+  const int jmax = (int)u[1].size() - 1;
+
+  FILE* f = std::fopen(filename, "w");
+  if (!f) return;
+
+  for (int j = 1; j <= jmax; j++) {
+    const double y = (j - 1) * deltay;
+    for (int i = 1; i <= imax; i++) {
+      const double x = (i - 1) * deltax;
+      std::fprintf(f, "%.8f %.8f %.10f\n", x, y, u[i][j]);
+    }
+    std::fprintf(f, "\n");
+  }
+
+  std::fclose(f);
+}
+
+// Plot with gnuplot script you already have
+void plotContourMatlabLike(const char* datafile,
+                           const char* outpng,
+                           double time_hr,
+                           const char* scheme) {
+
+  char cmd[1024];
+  std::snprintf(cmd, sizeof(cmd),
+                "gnuplot -e \""
+                "datafile=\\\"%s\\\"; "
+                "outpng=\\\"%s\\\"; "
+                "tlabel=%.3f; "
+                "scheme=\\\"%s\\\"\" "
+                "gnuplot_scripts/plot_contour_2d_matlab_like.gp",
+                datafile, outpng, time_hr, scheme);
+
+  std::printf("\n%s\n", scheme);
+  std::system(cmd);
+}

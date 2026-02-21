@@ -1,0 +1,22 @@
+CXX      = g++
+CXXFLAGS = -Wall -Wextra -O2 -std=c++17
+LDFLAGS  = -lm
+
+TARGET = heat2d
+SRC    = 2d.cpp
+
+all: $(TARGET)
+
+$(TARGET): $(SRC)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+run: $(TARGET)
+	./$(TARGET)
+
+debug:
+	$(CXX) -Wall -Wextra -g -std=c++17 -o $(TARGET) $(SRC) $(LDFLAGS)
+
+clean:
+	rm -f $(TARGET)
+	rm -f data/*.dat
+	rm -f plot/*.png

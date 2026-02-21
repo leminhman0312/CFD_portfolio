@@ -1,0 +1,32 @@
+from driver import sim, convergence_study
+from post import plot_one_dt, compare_error_schemes
+
+
+# ============================================================================
+# Main, mirrors the C++ main
+# ============================================================================
+def main():
+    imax = 21
+    delta_x = 0.05
+    delta_t = 0.01
+    alpha = 0.1
+    t0 = 100.0
+    tboundary = 300.0
+
+    Fourier_num = (alpha * delta_t) / (delta_x ** 2.0)
+
+    sim(delta_x, delta_t, imax, t0, tboundary, Fourier_num)
+
+    print("\nPlotting all schemes at 1 dt\n")
+    plot_one_dt(delta_t)
+
+    print("Comparing different schemes\n")
+    compare_error_schemes(delta_t, 0.4)
+
+    dt_list = [0.10, 0.05, 0.02, 0.01, 0.005]
+    print("Convergence study\n")
+    convergence_study(delta_x, imax, alpha, t0, tboundary, 0.4, dt_list)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,73 @@
+#pragma once
+#include "common.h"
+
+
+// Directory helpers
+void ensure_dir(const char* name);
+void ensure_project_dirs();
+
+
+// Error norms
+double error_L2(const vector<vector<double>>& u,
+                const vector<vector<double>>& uref);
+double error_Linf(const vector<vector<double>>& u,
+                  const vector<vector<double>>& uref);
+
+
+// Solvers
+vector<vector<double>> initializeField(int imax, int jmax,
+                                       double t0, double t1, double t2,
+                                       double t3, double t4);
+
+vector<vector<double>> FTCS_Explicit(const vector<vector<double>>& u0,
+                                     double t_end,
+                                     double deltax, double deltay,
+                                     double dt,
+                                     double alpha,
+                                     double t1, double t2, double t3, double t4);
+
+vector<vector<double>> FTCS_implicit_ADI(const vector<vector<double>>& u0,
+                                        int nmax,
+                                        double deltax, double deltay,
+                                        double dt,
+                                        double alpha,
+                                        double t1, double t2, double t3, double t4);
+
+// Linear solver
+void thomasTriDiagonal(int n,
+                       const vector<double>& a,
+                       const vector<double>& b,
+                       vector<double>& c,
+                       const vector<double>& d,
+                       vector<double>& u);
+
+
+// IO and plotting
+void write_field_xyz(const char* filename,
+                     const vector<vector<double>>& u,
+                     double deltax,
+                     double deltay);
+
+void plotContourMatlabLike(const char* datafile,
+                           const char* outpng,
+                           double time_hr,
+                           const char* scheme);
+
+void plot_time_convergence(const char* infile,
+                           const char* outpng);
+
+
+// High-level drivers
+void sim(const vector<vector<double>>& u0,
+         double t_end,
+         double deltax, double deltay,
+         double alpha,
+         double dt_implicit,
+         double dt_explicit_given,
+         double t1, double t2, double t3, double t4);
+
+void convergence(const vector<vector<double>>& u0,
+                 double t_end,
+                 double deltax, double deltay,
+                 double alpha,
+                 double t1, double t2, double t3, double t4);

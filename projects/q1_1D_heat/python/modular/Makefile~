@@ -1,0 +1,30 @@
+PY := python3
+VENV := .venv
+PIP := $(VENV)/bin/pip
+PYV := $(VENV)/bin/python
+
+.PHONY: help venv install run plot clean veryclean
+
+help:
+	@echo "make venv        create virtual env"
+	@echo "make install     install requirements"
+	@echo "make run         run the heat1d CLI"
+	@echo "make clean       remove data, plot, compare"
+	@echo "make veryclean   remove venv + outputs"
+
+venv:
+	$(PY) -m venv $(VENV)
+
+install: venv
+	$(PIP) install -r requirements.txt
+
+run: install
+	$(PYV) cli.py
+
+clean:
+	rm -rf data plot compare __pycache__ heat1d/__pycache__
+
+veryclean: clean
+	rm -rf $(VENV)
+tree:
+	find . -maxdepth 3 -type f | sort

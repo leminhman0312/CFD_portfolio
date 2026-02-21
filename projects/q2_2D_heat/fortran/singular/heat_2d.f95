@@ -1,0 +1,28 @@
+!!============================================================================
+!! 2D Heat Conduction Solver C++
+!! Solves the transient two dimensional heat equation
+!!     ∂T/∂t = α ( ∂²T/∂x² + ∂²T/∂y² )
+!! Numerical methods
+!!  FTCS explicit scheme
+!!  Implicit ADI scheme using Thomas tridiagonal solvers
+!! Run modes
+!!  ./heat2d sim
+!!  ./heat2d convergence
+!!  ./heat2d all
+!! Directories created automatically
+!!  data
+!!  plot
+!!  gnuplot_scripts
+!!============================================================================
+
+
+
+program heat_2d
+  call make_directory("plot")
+end program heat_2d
+
+subroutine make_directory(dirname)
+  implicit none
+  character(len=*), intent(in) :: dirname
+  call system("mkdir -p " // trim(dirname))
+end subroutine make_directory
