@@ -1,4 +1,3 @@
-// ============================================================================
 // 2D Heat Conduction Solver C++
 //
 // Solves the transient two dimensional heat equation

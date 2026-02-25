@@ -1,0 +1,199 @@
+module solvers_adi
+  use kinds,     only: real64
+  use tridiag,   only: thomasTriDiagonal
+  use io_dirs,   only: ensure_animation_dirs
+  use io_field,  only: write_field_xyz
+  use plotting,  only: plotContourMatlabLike
+  implicit none
+  private
+  public :: FTCS_implicit_ADI
+
+contains
+
+  subroutine write_frame(step, u, deltax, deltay, time_hr, scheme)
+    integer, intent(in) :: step
+    real(real64), intent(in) :: u(:,:)
+    real(real64), intent(in) :: deltax, deltay, time_hr
+    character(len=*), intent(in) :: scheme
+
+    character(len=256) :: datfile, pngfile
+
+    write(datfile,'(A,I6.6,A)') 'animation/dat/frame_', step, '.dat'
+    write(pngfile,'(A,I6.6,A)') 'animation/png/frame_', step, '.png'
+
+    call write_field_xyz(trim(datfile), u, deltax, deltay)
+    call plotContourMatlabLike(trim(datfile), trim(pngfile), time_hr, scheme)
+  end subroutine write_frame
+
+  subroutine FTCS_implicit_ADI(u0, nmax, deltax, deltay, dt, alpha, t1, t2, t3, t4, u, do_frames, frame_every)
+    real(real64), intent(in) :: u0(:,:)
+    integer, intent(in) :: nmax
+    real(real64), intent(in) :: deltax, deltay, dt, alpha
+    real(real64), intent(in) :: t1, t2, t3, t4
+    real(real64), intent(out) :: u(size(u0,1), size(u0,2))
+    logical, intent(in), optional :: do_frames
+    integer, intent(in), optional :: frame_every
+
+    integer :: imax2, jmax2
+    integer :: i, j, n
+    real(real64) :: fx, fy
+
+    real(real64), allocatable :: u_dummy(:,:)
+
+    real(real64), allocatable :: ax(:), bx(:), cx(:), dx(:), solx(:)
+    real(real64), allocatable :: ay(:), by(:), cy(:), dy(:), soly(:)
+
+    logical :: frames_on
+    integer :: every
+    character(len=64) :: scheme
+
+    frames_on = .false.
+    if (present(do_frames)) frames_on = do_frames
+
+    every = 1
+    if (present(frame_every)) every = max(1, frame_every)
+
+    scheme = 'Implicit ADI animation'
+
+    imax2 = size(u0,1)
+    jmax2 = size(u0,2)
+
+    allocate(u_dummy(imax2, jmax2))
+    u = u0
+    u_dummy = 0.0_real64
+
+    fx = alpha * dt / (deltax*deltax)
+    fy = alpha * dt / (deltay*deltay)
+
+    allocate(ax(imax2), bx(imax2), cx(imax2), dx(imax2), solx(imax2))
+    ax = 0.0_real64
+    bx = 0.0_real64
+    cx = 0.0_real64
+    dx = 0.0_real64
+    solx = 0.0_real64
+
+    do i = 2, imax2-1
+      ax(i) = -fx / 2.0_real64
+      bx(i) = -fx / 2.0_real64
+      dx(i) =  1.0_real64 + fx
+    end do
+    dx(1) = 1.0_real64
+    dx(imax2) = 1.0_real64
+
+    allocate(ay(jmax2), by(jmax2), cy(jmax2), dy(jmax2), soly(jmax2))
+    ay = 0.0_real64
+    by = 0.0_real64
+    cy = 0.0_real64
+    dy = 0.0_real64
+    soly = 0.0_real64
+
+    do j = 2, jmax2-1
+      ay(j) = -fy / 2.0_real64
+      by(j) = -fy / 2.0_real64
+      dy(j) =  1.0_real64 + fy
+    end do
+    dy(1) = 1.0_real64
+    dy(jmax2) = 1.0_real64
+
+    if (frames_on) then
+      call ensure_animation_dirs()
+
+      write(*,'(/,A,I6)') 'Implicit ADI animation: total steps = ', nmax
+      write(*,'(A,I0)') 'Writing frames every ', every
+
+      write(*,'(A,I6,A,I6)') 'Frame ', 0, ' / ', nmax
+      call write_frame(0, u, deltax, deltay, 0.0_real64, scheme)
+    end if
+
+    do n = 1, nmax
+
+      do j = 1, jmax2
+        u(1,j)     = t2
+        u(imax2,j) = t4
+      end do
+      do i = 1, imax2
+        u(i,1)     = t1
+        u(i,jmax2) = t3
+      end do
+
+      do j = 2, jmax2-1
+
+        cx = 0.0_real64
+        solx = 0.0_real64
+
+        do i = 2, imax2-1
+          cx(i) = (1.0_real64 - fy) * u(i,j) + (fy/2.0_real64) * (u(i,j+1) + u(i,j-1))
+        end do
+
+        cx(2)       = cx(2)       + (fx/2.0_real64) * u(1,j)
+        cx(imax2-1) = cx(imax2-1) + (fx/2.0_real64) * u(imax2,j)
+
+        solx(1) = u(1,j)
+        solx(imax2) = u(imax2,j)
+
+        cx(1) = u(1,j)
+        cx(imax2) = u(imax2,j)
+
+        call thomasTriDiagonal(imax2, ax, bx, cx, dx, solx)
+
+        do i = 1, imax2
+          u_dummy(i,j) = solx(i)
+        end do
+      end do
+
+      do j = 1, jmax2
+        u_dummy(1,j)     = t2
+        u_dummy(imax2,j) = t4
+      end do
+      do i = 1, imax2
+        u_dummy(i,1)     = t1
+        u_dummy(i,jmax2) = t3
+      end do
+
+      do i = 2, imax2-1
+
+        cy = 0.0_real64
+        soly = 0.0_real64
+
+        do j = 2, jmax2-1
+          cy(j) = (1.0_real64 - fx) * u_dummy(i,j) + (fx/2.0_real64) * (u_dummy(i+1,j) + u_dummy(i-1,j))
+        end do
+
+        cy(2)       = cy(2)       + (fy/2.0_real64) * u_dummy(i,1)
+        cy(jmax2-1) = cy(jmax2-1) + (fy/2.0_real64) * u_dummy(i,jmax2)
+
+        soly(1) = u_dummy(i,1)
+        soly(jmax2) = u_dummy(i,jmax2)
+
+        cy(1) = soly(1)
+        cy(jmax2) = soly(jmax2)
+
+        call thomasTriDiagonal(jmax2, ay, by, cy, dy, soly)
+
+        do j = 1, jmax2
+          u(i,j) = soly(j)
+        end do
+      end do
+
+      do j = 1, jmax2
+        u(1,j)     = t2
+        u(imax2,j) = t4
+      end do
+      do i = 1, imax2
+        u(i,1)     = t1
+        u(i,jmax2) = t3
+      end do
+
+      if (frames_on) then
+        if (mod(n, every) == 0 .or. n == nmax) then
+          write(*,'(A,I6,A,I6)') 'Frame ', n, ' / ', nmax
+          call write_frame(n, u, deltax, deltay, real(n, real64)*dt, scheme)
+        end if
+      end if
+
+    end do
+
+    deallocate(u_dummy, ax, bx, cx, dx, solx, ay, by, cy, dy, soly)
+  end subroutine FTCS_implicit_ADI
+
+end module solvers_adi
