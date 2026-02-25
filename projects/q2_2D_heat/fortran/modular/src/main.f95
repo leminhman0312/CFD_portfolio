@@ -53,9 +53,9 @@ program heat2d
 
   t0 = 0.0_real64
   t1 = 200.0_real64
-  t2 = 200.0_real64
-  t3 = 0.0_real64
-  t4 = 0.0_real64
+  t2 = 0.00_real64
+  t3 = 200.00_real64
+  t4 = 0.00_real64
 
   allocate(u0(imax, jmax))
   call initializeField(imax, jmax, t0, t1, t2, t3, t4, u0)
