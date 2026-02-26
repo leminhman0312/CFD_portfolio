@@ -34,7 +34,7 @@ program heat2d
   do_all  = (argc >= 1 .and. trim(arg1) == 'all')
   do_anim = (argc >= 1 .and. trim(arg1) == 'animation')
 
-  t_end = 0.5_real64
+  t_end = 2.00_real64
 
   deltax = 0.1_real64
   deltay = 0.1_real64
@@ -52,10 +52,14 @@ program heat2d
   jmax = int(ceiling((ymax - ymin) / deltay + 1.0_real64))
 
   t0 = 0.0_real64
-  t1 = 200.0_real64
-  t2 = 0.00_real64
-  t3 = 200.00_real64
-  t4 = 0.00_real64
+  !! bottom
+  t1 = 400.0_real64
+  !! left
+  t2 = 400.00_real64
+  !! top 
+  t3 = 400.00_real64
+  !! right
+  t4 = 400.00_real64      
 
   allocate(u0(imax, jmax))
   call initializeField(imax, jmax, t0, t1, t2, t3, t4, u0)

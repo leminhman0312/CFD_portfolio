@@ -8,17 +8,17 @@ contains
   
   real(real64) function error_L2(u, uref) result(val)
     real(real64), intent(in) :: u(:,:), uref(:,:)
-    integer :: imax2, jmax2, i, j, n
+    integer :: imax, jmax, i, j, n
     real(real64) :: sum, e
 
-    imax2 = size(u,1)
-    jmax2 = size(u,2)
+    imax = size(u,1)
+    jmax = size(u,2)
 
     sum = 0.0_real64
     n = 0
 
-    do i = 2, imax2-1
-      do j = 2, jmax2-1
+    do i = 2, imax-1
+      do j = 2, jmax-1
         e = u(i,j) - uref(i,j)
         sum = sum + e*e
         n = n + 1
@@ -34,15 +34,15 @@ contains
 
   real(real64) function error_Linf(u, uref) result(val)
     real(real64), intent(in) :: u(:,:), uref(:,:)
-    integer :: imax2, jmax2, i, j
+    integer :: imax, jmax, i, j
     real(real64) :: e
 
-    imax2 = size(u,1)
-    jmax2 = size(u,2)
+    imax = size(u,1)
+    jmax = size(u,2)
 
     val = 0.0_real64
-    do i = 2, imax2-1
-      do j = 2, jmax2-1
+    do i = 2, imax-1
+      do j = 2, jmax-1
         e = abs(u(i,j) - uref(i,j))
         if (e > val) val = e
       end do

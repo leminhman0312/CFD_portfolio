@@ -1,5 +1,5 @@
 FC      = gfortran
-FFLAGS  = -Wall -Wextra -O2 -std=f2008 -J build -I build
+FFLAGS  = -Wall -Wextra -O3 -std=f2008 -J build -I build
 LDFLAGS = -lm
 
 TARGET = heat2d
@@ -9,7 +9,7 @@ BIN    = bin
 
 OBJS = \
   $(BUILD)/kinds.o \
-  $(BUILD)/dir_utils.o \
+  $(BUILD)/io_dirs.o \
   $(BUILD)/norms.o \
   $(BUILD)/field_init.o \
   $(BUILD)/io_field.o \
@@ -68,10 +68,11 @@ run: build
 
 clean:
 	rm -rf $(BUILD) $(BIN)/$(TARGET)
-
-clean_outputs:
 	-rm -f data/*.dat
 	-rm -f plot/*.png
 	-rm -f animation/*.mp4
 	-rm -f animation/dat/*.dat
 	-rm -f animation/png/*.png
+
+
+
