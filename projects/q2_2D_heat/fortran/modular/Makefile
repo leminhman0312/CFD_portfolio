@@ -1,11 +1,18 @@
-FC      = gfortran
-FFLAGS  = -Wall -Wextra -O3 -std=f2008 -J build -I build
-LDFLAGS = -lm
+SHELL := /bin/bash
 
-TARGET = heat2d
-SRC    = src
-BUILD  = build
-BIN    = bin
+FC      := gfortran
+FFLAGS  := -Wall -Wextra -O3 -std=f2008 -J build -I build
+LDFLAGS := -lm
+
+TARGET  := heat2d
+SRC     := src
+BUILD   := build
+BIN     := bin
+EXE     := $(BIN)/$(TARGET)
+
+CASE ?= rect
+
+OUTDIRS := data plot gnuplot_scripts animation animation/dat animation/png animation/movie
 
 OBJS = \
   $(BUILD)/kinds.o \
@@ -21,58 +28,51 @@ OBJS = \
   $(BUILD)/animation.o \
   $(BUILD)/main.o
 
-.PHONY: default build sim convergence all animation run clean clean_outputs dirs
+.PHONY: default dirs build sim convergence animation all run clean clean_outputs
 
 default: build
 
 dirs:
-	mkdir -p $(BUILD) $(BIN) data plot gnuplot_scripts animation
+	mkdir -p "$(BUILD)" "$(BIN)" $(OUTDIRS)
 
-build: dirs $(BIN)/$(TARGET)
+build: dirs $(EXE)
 
-$(BIN)/$(TARGET): $(OBJS)
-	$(FC) -o $@ $^ $(LDFLAGS)
+$(EXE): $(OBJS)
+	$(FC) -o "$@" $^ $(LDFLAGS)
 
 $(BUILD)/%.o: $(SRC)/%.f95 | dirs
-	$(FC) $(FFLAGS) -c $< -o $@
-
-# Module dependency ordering
-$(BUILD)/dir_utils.o: $(BUILD)/kinds.o
-$(BUILD)/norms.o: $(BUILD)/kinds.o
-$(BUILD)/field_init.o: $(BUILD)/kinds.o
-$(BUILD)/io_field.o: $(BUILD)/kinds.o
-$(BUILD)/plotting.o: $(BUILD)/kinds.o
-$(BUILD)/tridiag.o: $(BUILD)/kinds.o
-
-$(BUILD)/solver_explicit.o: $(BUILD)/kinds.o
-$(BUILD)/solver_adi.o: $(BUILD)/kinds.o $(BUILD)/tridiag.o $(BUILD)/dir_utils.o $(BUILD)/io_field.o $(BUILD)/plotting.o
-
-$(BUILD)/driver.o: $(BUILD)/kinds.o $(BUILD)/norms.o $(BUILD)/io_field.o $(BUILD)/plotting.o $(BUILD)/solver_explicit.o $(BUILD)/solver_adi.o
-$(BUILD)/animation.o: $(BUILD)/kinds.o $(BUILD)/solver_adi.o
-$(BUILD)/main.o: $(BUILD)/kinds.o $(BUILD)/dir_utils.o $(BUILD)/field_init.o $(BUILD)/driver.o $(BUILD)/animation.o
+	$(FC) $(FFLAGS) -c "$<" -o "$@"
 
 sim: build
-	./$(BIN)/$(TARGET) sim
+	"./$(EXE)" $(CASE) sim
 
 convergence: build
-	./$(BIN)/$(TARGET) convergence
-
-all: build
-	./$(BIN)/$(TARGET) all
+	"./$(EXE)" $(CASE) convergence
 
 animation: build
-	./$(BIN)/$(TARGET) animation
+	"./$(EXE)" $(CASE) animation
+
+all: build
+	"./$(EXE)" $(CASE) all
 
 run: build
-	./$(BIN)/$(TARGET)
+	"./$(EXE)"
+
+clean_outputs:
+	rm -f data/*.dat
+	rm -f plot/*.png
+	rm -f animation/movie/*.mp4
+	rm -f animation/dat/*.dat
+	rm -f animation/png/*.png
 
 clean:
-	rm -rf $(BUILD) $(BIN)/$(TARGET)
-	-rm -f data/*.dat
-	-rm -f plot/*.png
-	-rm -f animation/*.mp4
-	-rm -f animation/dat/*.dat
-	-rm -f animation/png/*.png
-
-
-
+	@set -e; \
+	if [ -z "$(BUILD)" ] || [ "$(BUILD)" = "/" ] || [ "$(BUILD)" = "." ]; then \
+	  echo "Refusing to clean. BUILD is unsafe: '$(BUILD)'"; exit 2; \
+	fi; \
+	if [ -z "$(BIN)" ] || [ "$(BIN)" = "/" ] || [ "$(BIN)" = "." ]; then \
+	  echo "Refusing to clean. BIN is unsafe: '$(BIN)'"; exit 2; \
+	fi; \
+	rm -rf -- "$(BUILD)"; \
+	rm -f -- "$(EXE)"; \
+	$(MAKE) clean_outputs

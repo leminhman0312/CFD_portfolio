@@ -1,14 +1,16 @@
 program heat2d
   use kinds,      only: real64
   use io_dirs,    only: ensure_project_dirs
-  use field_init, only: initializeField
+  use field_init, only: initializeField, initialize_point_source
   use driver,     only: sim, convergence
-  use animation,  only: make_animation_implicit_adi
+  use animation,  only: make_animation_implicit_adi, make_animation_implicit_adi_source
   implicit none
 
   integer :: argc
-  character(len=64) :: arg1
-  logical :: do_sim, do_conv, do_all, do_anim
+  character(len=64) :: a1, a2
+  character(len=16) :: bc_case, cmd
+
+  logical :: do_sim, do_conv, do_anim, do_all
 
   real(real64) :: t_end
   real(real64) :: deltax, deltay, alpha
@@ -19,20 +21,47 @@ program heat2d
 
   real(real64), allocatable :: u0(:,:)
 
+  real(real64) :: r_source, t_source
+
   call ensure_project_dirs()
 
   argc = command_argument_count()
+  a1 = ''
+  a2 = ''
+
   if (argc >= 1) then
-    call get_command_argument(1, arg1)
-    arg1 = adjustl(arg1)
-  else
-    arg1 = ''
+    call get_command_argument(1, a1)
+    a1 = adjustl(a1)
   end if
 
-  do_sim  = (argc == 0) .or. (argc >= 1 .and. trim(arg1) == 'sim')
-  do_conv = (argc >= 1 .and. trim(arg1) == 'convergence')
-  do_all  = (argc >= 1 .and. trim(arg1) == 'all')
-  do_anim = (argc >= 1 .and. trim(arg1) == 'animation')
+  if (argc >= 2) then
+    call get_command_argument(2, a2)
+    a2 = adjustl(a2)
+  end if
+
+  bc_case = 'rect'
+  cmd     = 'sim'
+
+  if (argc == 0) then
+    bc_case = 'rect'
+    cmd     = 'sim'
+  else if (argc == 1) then
+    if (trim(a1) == 'sim' .or. trim(a1) == 'convergence' .or. trim(a1) == 'animation' .or. trim(a1) == 'all') then
+      bc_case = 'rect'
+      cmd     = trim(a1)
+    else
+      bc_case = trim(a1)
+      cmd     = 'sim'
+    end if
+  else
+    bc_case = trim(a1)
+    cmd     = trim(a2)
+  end if
+
+  do_sim  = (trim(cmd) == 'sim') .or. (trim(cmd) == 'all')
+  do_conv = (trim(cmd) == 'convergence') .or. (trim(cmd) == 'all')
+  do_anim = (trim(cmd) == 'animation') .or. (trim(cmd) == 'all')
+  do_all  = (trim(cmd) == 'all')
 
   t_end = 2.00_real64
 
@@ -40,7 +69,7 @@ program heat2d
   deltay = 0.1_real64
   alpha  = 0.645_real64
 
-  dt_implicit = 0.01_real64
+  dt_implicit       = 0.01_real64
   dt_explicit_given = 0.01_real64
 
   xmin = 0.0_real64
@@ -52,28 +81,42 @@ program heat2d
   jmax = int(ceiling((ymax - ymin) / deltay + 1.0_real64))
 
   t0 = 0.0_real64
-  !! bottom
-  t1 = 400.0_real64
-  !! left
-  t2 = 400.00_real64
-  !! top 
-  t3 = 400.00_real64
-  !! right
-  t4 = 400.00_real64      
+  t1 = 30.0_real64
+  t2 = 30.0_real64
+  t3 = 30.0_real64
+  t4 = 30.0_real64
+
+  r_source = 0.25_real64
+  t_source = 200.0_real64
 
   allocate(u0(imax, jmax))
-  call initializeField(imax, jmax, t0, t1, t2, t3, t4, u0)
 
-  if (do_sim .or. do_all) then
-    call sim(u0, t_end, deltax, deltay, alpha, dt_implicit, dt_explicit_given, t1, t2, t3, t4)
+  if (trim(bc_case) == 'source') then
+    call initialize_point_source(imax, jmax, deltax, deltay, r_source, t_source, u0)
+  else
+    call initializeField(imax, jmax, t0, t1, t2, t3, t4, u0)
   end if
 
-  if (do_conv .or. do_all) then
-    call convergence(u0, t_end, deltax, deltay, alpha, t1, t2, t3, t4)
+  if (do_sim) then
+    call sim(u0, t_end, deltax, deltay, alpha, dt_implicit, dt_explicit_given, t1, t2, t3, t4, &
+             bc_case, r_source, t_source)
+  end if
+
+  if (do_conv) then
+    call convergence(u0, t_end, deltax, deltay, alpha, t1, t2, t3, t4, &
+                     bc_case, r_source, t_source)
   end if
 
   if (do_anim) then
-    call make_animation_implicit_adi(u0, t_end, deltax, deltay, alpha, dt_implicit, t1, t2, t3, t4)
+    if (trim(bc_case) == 'source') then
+      call make_animation_implicit_adi_source(u0, t_end, deltax, deltay, alpha, dt_implicit, r_source, t_source)
+    else
+      call make_animation_implicit_adi(u0, t_end, deltax, deltay, alpha, dt_implicit, t1, t2, t3, t4)
+    end if
+  end if
+
+  if (do_all) then
+    continue
   end if
 
   write(*,'(/,A)') 'Done'

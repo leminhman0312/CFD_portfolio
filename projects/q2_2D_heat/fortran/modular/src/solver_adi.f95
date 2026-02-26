@@ -1,4 +1,5 @@
 module solvers_adi
+  use, intrinsic :: iso_fortran_env, only: output_unit
   use kinds,     only: real64
   use tridiag,   only: thomasTriDiagonal
   use io_dirs,   only: ensure_animation_dirs
@@ -25,7 +26,94 @@ contains
     call plotContourMatlabLike(trim(datfile), trim(pngfile), time_hr, scheme)
   end subroutine write_frame
 
-  subroutine FTCS_implicit_ADI(u0, nmax, deltax, deltay, dt, alpha, t1, t2, t3, t4, u, do_frames, frame_every)
+
+  subroutine apply_bc_dirichlet(u, t1, t2, t3, t4)
+    real(real64), intent(inout) :: u(:,:)
+    real(real64), intent(in) :: t1, t2, t3, t4
+    integer :: im, jm, i, j
+
+    im = size(u,1)
+    jm = size(u,2)
+
+    do j = 1, jm
+      u(1, j)  = t2
+      u(im, j) = t4
+    end do
+    do i = 1, im
+      u(i, 1)  = t1
+      u(i, jm) = t3
+    end do
+  end subroutine apply_bc_dirichlet
+
+
+  subroutine apply_bc_zero(u)
+    real(real64), intent(inout) :: u(:,:)
+    integer :: im, jm, i, j
+
+    im = size(u,1)
+    jm = size(u,2)
+
+    do j = 1, jm
+      u(1, j)  = 0.0_real64
+      u(im, j) = 0.0_real64
+    end do
+    do i = 1, im
+      u(i, 1)  = 0.0_real64
+      u(i, jm) = 0.0_real64
+    end do
+  end subroutine apply_bc_zero
+
+
+  subroutine clamp_circle(u, deltax, deltay, r, tval)
+    real(real64), intent(inout) :: u(:,:)
+    real(real64), intent(in) :: deltax, deltay, r, tval
+
+    integer :: im, jm, i, j
+    real(real64) :: x0, y0, x, y, dx, dy, rr2
+
+    im = size(u,1)
+    jm = size(u,2)
+
+    x0 = 0.5_real64 * real(im - 1, real64) * deltax
+    y0 = 0.5_real64 * real(jm - 1, real64) * deltay
+
+    rr2 = r * r
+
+    do j = 1, jm
+      y  = real(j - 1, real64) * deltay
+      dy = y - y0
+      do i = 1, im
+        x  = real(i - 1, real64) * deltax
+        dx = x - x0
+        if (dx*dx + dy*dy <= rr2) then
+          u(i,j) = tval
+        end if
+      end do
+    end do
+  end subroutine clamp_circle
+
+
+  subroutine enforce_bc_and_source(u, deltax, deltay, zbc, src, t1, t2, t3, t4, rs, ts)
+    real(real64), intent(inout) :: u(:,:)
+    real(real64), intent(in) :: deltax, deltay
+    logical, intent(in) :: zbc, src
+    real(real64), intent(in) :: t1, t2, t3, t4
+    real(real64), intent(in) :: rs, ts
+
+    if (zbc) then
+      call apply_bc_zero(u)
+    else
+      call apply_bc_dirichlet(u, t1, t2, t3, t4)
+    end if
+
+    if (src) then
+      call clamp_circle(u, deltax, deltay, rs, ts)
+    end if
+  end subroutine enforce_bc_and_source
+
+
+  subroutine FTCS_implicit_ADI(u0, nmax, deltax, deltay, dt, alpha, t1, t2, t3, t4, u, &
+                               do_frames, frame_every, use_zero_bc, use_source, r_source, t_source)
     real(real64), intent(in) :: u0(:,:)
     integer, intent(in) :: nmax
     real(real64), intent(in) :: deltax, deltay, dt, alpha
@@ -33,6 +121,9 @@ contains
     real(real64), intent(out) :: u(size(u0,1), size(u0,2))
     logical, intent(in), optional :: do_frames
     integer, intent(in), optional :: frame_every
+    logical, intent(in), optional :: use_zero_bc
+    logical, intent(in), optional :: use_source
+    real(real64), intent(in), optional :: r_source, t_source
 
     integer :: imax2, jmax2
     integer :: i, j, n
@@ -47,11 +138,24 @@ contains
     integer :: every
     character(len=64) :: scheme
 
+    logical :: zbc, src
+    real(real64) :: rs, ts
+
     frames_on = .false.
     if (present(do_frames)) frames_on = do_frames
 
     every = 1
     if (present(frame_every)) every = max(1, frame_every)
+
+    zbc = .false.
+    src = .false.
+    rs  = 0.0_real64
+    ts  = 0.0_real64
+
+    if (present(use_zero_bc)) zbc = use_zero_bc
+    if (present(use_source))  src = use_source
+    if (present(r_source))    rs  = r_source
+    if (present(t_source))    ts  = t_source
 
     scheme = 'Implicit ADI animation'
 
@@ -95,26 +199,22 @@ contains
     dy(1) = 1.0_real64
     dy(jmax2) = 1.0_real64
 
+    call enforce_bc_and_source(u, deltax, deltay, zbc, src, t1, t2, t3, t4, rs, ts)
+
     if (frames_on) then
       call ensure_animation_dirs()
 
       write(*,'(/,A,I6)') 'Implicit ADI animation: total steps = ', nmax
       write(*,'(A,I0)') 'Writing frames every ', every
 
-      write(*,'(A,I6,A,I6)') 'Frame ', 0, ' / ', nmax
+      write(*,'(A,I6,A,I6,A)', advance='no') 'Frame ', 0, ' / ', nmax, char(13)
+      flush(output_unit)
       call write_frame(0, u, deltax, deltay, 0.0_real64, scheme)
     end if
 
     do n = 1, nmax
 
-      do j = 1, jmax2
-        u(1,j)     = t2
-        u(imax2,j) = t4
-      end do
-      do i = 1, imax2
-        u(i,1)     = t1
-        u(i,jmax2) = t3
-      end do
+      call enforce_bc_and_source(u, deltax, deltay, zbc, src, t1, t2, t3, t4, rs, ts)
 
       do j = 2, jmax2-1
 
@@ -141,14 +241,7 @@ contains
         end do
       end do
 
-      do j = 1, jmax2
-        u_dummy(1,j)     = t2
-        u_dummy(imax2,j) = t4
-      end do
-      do i = 1, imax2
-        u_dummy(i,1)     = t1
-        u_dummy(i,jmax2) = t3
-      end do
+      call enforce_bc_and_source(u_dummy, deltax, deltay, zbc, src, t1, t2, t3, t4, rs, ts)
 
       do i = 2, imax2-1
 
@@ -175,22 +268,16 @@ contains
         end do
       end do
 
-      do j = 1, jmax2
-        u(1,j)     = t2
-        u(imax2,j) = t4
-      end do
-      do i = 1, imax2
-        u(i,1)     = t1
-        u(i,jmax2) = t3
-      end do
+      call enforce_bc_and_source(u, deltax, deltay, zbc, src, t1, t2, t3, t4, rs, ts)
 
       if (frames_on) then
         if (mod(n, every) == 0 .or. n == nmax) then
-          write(*,'(A,I6,A,I6)') 'Frame ', n, ' / ', nmax
+           write(*,'(A,I6,A,I6,A)', advance='no') 'Frame ', n, ' / ', nmax, char(13)
+           flush(output_unit)
           call write_frame(n, u, deltax, deltay, real(n, real64)*dt, scheme)
         end if
       end if
-
+      write(*,*)
     end do
 
     deallocate(u_dummy, ax, bx, cx, dx, solx, ay, by, cy, dy, soly)

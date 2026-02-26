@@ -3,7 +3,7 @@ module animation
   use solvers_adi, only: FTCS_implicit_ADI
   implicit none
   private
-  public :: make_animation_implicit_adi, makeMP4
+  public :: make_animation_implicit_adi, make_animation_implicit_adi_source, makeMP4
 
 contains
 
@@ -29,6 +29,32 @@ contains
 
     deallocate(u)
   end subroutine make_animation_implicit_adi
+
+  subroutine make_animation_implicit_adi_source(u0, t_end, deltax, deltay, alpha, dt, r_source, t_source)
+    real(real64), intent(in) :: u0(:,:)
+    real(real64), intent(in) :: t_end, deltax, deltay, alpha, dt
+    real(real64), intent(in) :: r_source, t_source
+
+    integer :: nmax
+    real(real64), allocatable :: u(:,:)
+    integer :: every
+
+    write(*,'(/,A)') 'ANIMATION (implicit ADI) with center source'
+
+    nmax = nint(t_end / dt)
+    allocate(u(size(u0,1), size(u0,2)))
+
+    every = 1
+
+    call FTCS_implicit_ADI(u0, nmax, deltax, deltay, dt, alpha, &
+                           0.0_real64, 0.0_real64, 0.0_real64, 0.0_real64, u, &
+                           do_frames=.true., frame_every=every, &
+                           use_zero_bc=.true., use_source=.true., r_source=r_source, t_source=t_source)
+
+    call makeMP4('animation/png/frame_%06d.png', 'animation/movie/implicit_adi_source.mp4', 30)
+
+    deallocate(u)
+  end subroutine make_animation_implicit_adi_source
 
   subroutine makeMP4(png_pattern, outmp4, fps)
     character(len=*), intent(in) :: png_pattern
