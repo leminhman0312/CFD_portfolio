@@ -63,6 +63,22 @@ contains
     end do
   end subroutine apply_bc_zero
 
+  subroutine apply_bc_neumann_zero(u)
+    real(real64), intent(inout) :: u(:,:)
+    integer :: im, jm
+
+    im = size(u,1)
+    jm = size(u,2)
+
+    ! Left / Right
+    u(1,:)  = u(2,:)
+    u(im,:) = u(im-1,:)
+
+    ! Bottom / Top
+    u(:,1)  = u(:,2)
+    u(:,jm) = u(:,jm-1)
+  end subroutine apply_bc_neumann_zero
+
 
   subroutine clamp_circle(u, deltax, deltay, r, tval)
     real(real64), intent(inout) :: u(:,:)
@@ -100,7 +116,8 @@ contains
     real(real64), intent(in) :: rs, ts
 
     if (zbc) then
-      call apply_bc_zero(u)
+      ! call apply_bc_zero(u)
+      call apply_bc_neumann_zero(u)
     else
       call apply_bc_dirichlet(u, t1, t2, t3, t4)
     end if
@@ -225,11 +242,29 @@ contains
         cx(2)       = cx(2)       + (fx/2.0_real64) * u(1,j)
         cx(imax2-1) = cx(imax2-1) + (fx/2.0_real64) * u(imax2,j)
 
-        solx(1) = u(1,j)
-        solx(imax2) = u(imax2,j)
+        if (zbc) then
+           ! Neumann zero gradient: u1 = u2, un = u(n-1)
+           dx(1)      = 1.0_real64
+           bx(1)      = -1.0_real64
+           ax(1)      = 0.0_real64
+           cx(1)      = 0.0_real64
 
-        cx(1) = u(1,j)
-        cx(imax2) = u(imax2,j)
+           dx(imax2)  = 1.0_real64
+           ax(imax2)  = -1.0_real64
+           bx(imax2)  = 0.0_real64
+           cx(imax2)  = 0.0_real64
+        else
+           ! Dirichlet
+           dx(1)      = 1.0_real64
+           ax(1)      = 0.0_real64
+           bx(1)      = 0.0_real64
+           cx(1)      = u(1,j)
+
+           dx(imax2)  = 1.0_real64
+           ax(imax2)  = 0.0_real64
+           bx(imax2)  = 0.0_real64
+           cx(imax2)  = u(imax2,j)
+        end if
 
         call thomasTriDiagonal(imax2, ax, bx, cx, dx, solx)
 
@@ -253,11 +288,29 @@ contains
         cy(2)       = cy(2)       + (fy/2.0_real64) * u_dummy(i,1)
         cy(jmax2-1) = cy(jmax2-1) + (fy/2.0_real64) * u_dummy(i,jmax2)
 
-        soly(1) = u_dummy(i,1)
-        soly(jmax2) = u_dummy(i,jmax2)
+        if (zbc) then
+           ! Neumann zero gradient: u1 = u2, un = u(n-1)
+           dy(1)      = 1.0_real64
+           by(1)      = -1.0_real64
+           ay(1)      = 0.0_real64
+           cy(1)      = 0.0_real64
 
-        cy(1) = soly(1)
-        cy(jmax2) = soly(jmax2)
+           dy(jmax2)  = 1.0_real64
+           ay(jmax2)  = -1.0_real64
+           by(jmax2)  = 0.0_real64
+           cy(jmax2)  = 0.0_real64
+        else
+           ! Dirichlet
+           dy(1)      = 1.0_real64
+           ay(1)      = 0.0_real64
+           by(1)      = 0.0_real64
+           cy(1)      = u_dummy(i,1)
+
+           dy(jmax2)  = 1.0_real64
+           ay(jmax2)  = 0.0_real64
+           by(jmax2)  = 0.0_real64
+           cy(jmax2)  = u_dummy(i,jmax2)
+        end if
 
         call thomasTriDiagonal(jmax2, ay, by, cy, dy, soly)
 

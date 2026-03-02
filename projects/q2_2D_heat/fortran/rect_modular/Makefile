@@ -12,6 +12,9 @@ EXE     := $(BIN)/$(TARGET)
 
 OUTDIRS := data plot gnuplot_scripts animation animation/dat animation/png animation/movie
 
+# ------------------------------------------------------------------
+# Object list ORDERED by module dependency
+# ------------------------------------------------------------------
 OBJS = \
   $(BUILD)/kinds.o \
   $(BUILD)/io_dirs.o \
@@ -20,10 +23,10 @@ OBJS = \
   $(BUILD)/io_field.o \
   $(BUILD)/plotting.o \
   $(BUILD)/tridiag.o \
+  $(BUILD)/animation.o \
   $(BUILD)/solver_explicit.o \
   $(BUILD)/solver_adi.o \
   $(BUILD)/driver.o \
-  $(BUILD)/animation.o \
   $(BUILD)/main.o
 
 .PHONY: default dirs build sim convergence animation all run clean clean_outputs
@@ -38,9 +41,30 @@ build: dirs $(EXE)
 $(EXE): $(OBJS)
 	$(FC) -o "$@" $^ $(LDFLAGS)
 
+# ------------------------------------------------------------------
+# Generic compilation rule
+# ------------------------------------------------------------------
 $(BUILD)/%.o: $(SRC)/%.f95 | dirs
 	$(FC) $(FFLAGS) -c "$<" -o "$@"
 
+# ------------------------------------------------------------------
+# Explicit module dependencies (important)
+# ------------------------------------------------------------------
+$(BUILD)/animation.o: $(BUILD)/io_dirs.o $(BUILD)/io_field.o $(BUILD)/plotting.o
+
+$(BUILD)/solver_explicit.o: $(BUILD)/animation.o
+$(BUILD)/solver_adi.o:      $(BUILD)/animation.o $(BUILD)/tridiag.o
+
+$(BUILD)/driver.o: \
+	$(BUILD)/solver_explicit.o \
+	$(BUILD)/solver_adi.o \
+	$(BUILD)/animation.o
+
+$(BUILD)/main.o: $(BUILD)/driver.o
+
+# ------------------------------------------------------------------
+# Run targets
+# ------------------------------------------------------------------
 sim: build
 	"./$(EXE)" sim
 
@@ -56,6 +80,9 @@ all: build
 run: build
 	"./$(EXE)"
 
+# ------------------------------------------------------------------
+# Cleaning
+# ------------------------------------------------------------------
 clean_outputs:
 	rm -f data/*.dat
 	rm -f plot/*.png

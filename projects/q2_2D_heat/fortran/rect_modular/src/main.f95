@@ -3,7 +3,6 @@ program heat2d
   use io_dirs,    only: ensure_project_dirs
   use field_init, only: initializeField
   use driver,     only: sim, convergence
-  use animation,  only: make_animation_implicit_adi
   implicit none
 
   integer :: argc
@@ -36,10 +35,10 @@ program heat2d
     cmd = trim(arg1)
   end if
 
-  do_sim  = (trim(cmd) == 'sim') .or. (trim(cmd) == 'all')
-  do_conv = (trim(cmd) == 'convergence') .or. (trim(cmd) == 'all')
-  do_anim = (trim(cmd) == 'animation') .or. (trim(cmd) == 'all')
-  do_all  = (trim(cmd) == 'all')
+  do_sim  = (cmd == 'sim')        .or. (cmd == 'all')
+  do_conv = (cmd == 'convergence').or. (cmd == 'all')
+  do_anim = (cmd == 'animation') .or. (cmd == 'all')
+  do_all  = (cmd == 'all')
 
   t_end = 2.00_real64
 
@@ -67,20 +66,14 @@ program heat2d
   allocate(u0(imax, jmax))
   call initializeField(imax, jmax, t0, t1, t2, t3, t4, u0)
 
-  if (do_sim) then
-    call sim(u0, t_end, deltax, deltay, alpha, dt_implicit, dt_explicit_given, t1, t2, t3, t4)
+  if (do_sim .or. do_anim) then
+    call sim(u0, t_end, deltax, deltay, alpha, &
+             dt_implicit, dt_explicit_given, &
+             t1, t2, t3, t4, anim_on=do_anim)
   end if
 
   if (do_conv) then
     call convergence(u0, t_end, deltax, deltay, alpha, t1, t2, t3, t4)
-  end if
-
-  if (do_anim) then
-    call make_animation_implicit_adi(u0, t_end, deltax, deltay, alpha, dt_implicit, t1, t2, t3, t4)
-  end if
-
-  if (do_all) then
-    continue
   end if
 
   write(*,'(/,A)') 'Done'

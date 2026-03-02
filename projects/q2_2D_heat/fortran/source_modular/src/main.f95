@@ -41,7 +41,7 @@ program heat2d
   do_conv = (trim(cmd) == 'convergence') .or. (trim(cmd) == 'all')
   do_anim = (trim(cmd) == 'animation') .or. (trim(cmd) == 'all')
 
-  t_end = 2.00_real64
+  t_end = 5.00_real64
 
   deltax = 0.1_real64
   deltay = 0.1_real64

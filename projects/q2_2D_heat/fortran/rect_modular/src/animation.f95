@@ -1,60 +1,52 @@
 module animation
-  use kinds,       only: real64
-  use solvers_adi, only: FTCS_implicit_ADI
+  use kinds,     only: real64
+  use io_dirs,   only: ensure_animation_dirs
+  use io_field,  only: write_field_xyz
+  use plotting,  only: plotContourMatlabLike
+  use, intrinsic :: iso_fortran_env, only: output_unit
   implicit none
   private
-  public :: make_animation_implicit_adi, make_animation_implicit_adi_source, makeMP4
+  public :: makeMP4, clear_animation_frames, write_frame, animation_step
 
 contains
 
-  subroutine make_animation_implicit_adi(u0, t_end, deltax, deltay, alpha, dt, t1, t2, t3, t4)
-    real(real64), intent(in) :: u0(:,:)
-    real(real64), intent(in) :: t_end, deltax, deltay, alpha, dt
-    real(real64), intent(in) :: t1, t2, t3, t4
+  subroutine clear_animation_frames()
+    integer :: exitstat
+    call ensure_animation_dirs()
+    call execute_command_line('rm -f -- animation/dat/*.dat animation/png/*.png', exitstat=exitstat)
+  end subroutine clear_animation_frames
 
-    integer :: nmax
-    real(real64), allocatable :: u(:,:)
-    integer :: every
 
-    write(*,'(/,A)') 'ANIMATION (implicit ADI)'
+  subroutine animation_step(step, nmax, scheme, anim_on, every)
+    integer, intent(in) :: step, nmax
+    character(len=*), intent(in) :: scheme
+    logical, intent(in) :: anim_on
+    integer, intent(in) :: every
 
-    nmax = nint(t_end / dt)
-    allocate(u(size(u0,1), size(u0,2)))
+    if (.not. anim_on) return
+    if (mod(step, every) /= 0 .and. step /= nmax) return
 
-    every = 1
-    call FTCS_implicit_ADI(u0, nmax, deltax, deltay, dt, alpha, t1, t2, t3, t4, u, &
-                           do_frames=.true., frame_every=every)
+    write(output_unit,'(A,A,I6,A,I6)', advance='no') &
+         char(13), trim(scheme)//': Frame ', step, ' / ', nmax
+    flush(output_unit)
+  end subroutine animation_step
 
-    call makeMP4('animation/png/frame_%06d.png', 'animation/movie/implicit_adi.mp4', 30)
 
-    deallocate(u)
-  end subroutine make_animation_implicit_adi
+  subroutine write_frame(step, u, deltax, deltay, time_hr, scheme)
+    integer, intent(in) :: step
+    real(real64), intent(in) :: u(:,:)
+    real(real64), intent(in) :: deltax, deltay, time_hr
+    character(len=*), intent(in) :: scheme
 
-  subroutine make_animation_implicit_adi_source(u0, t_end, deltax, deltay, alpha, dt, r_source, t_source)
-    real(real64), intent(in) :: u0(:,:)
-    real(real64), intent(in) :: t_end, deltax, deltay, alpha, dt
-    real(real64), intent(in) :: r_source, t_source
+    character(len=256) :: datfile, pngfile
 
-    integer :: nmax
-    real(real64), allocatable :: u(:,:)
-    integer :: every
+    write(datfile,'(A,I6.6,A)') 'animation/dat/frame_', step, '.dat'
+    write(pngfile,'(A,I6.6,A)') 'animation/png/frame_', step, '.png'
 
-    write(*,'(/,A)') 'ANIMATION (implicit ADI) with center source'
+    call write_field_xyz(trim(datfile), u, deltax, deltay)
+    call plotContourMatlabLike(trim(datfile), trim(pngfile), time_hr, scheme)
+  end subroutine write_frame
 
-    nmax = nint(t_end / dt)
-    allocate(u(size(u0,1), size(u0,2)))
-
-    every = 1
-
-    call FTCS_implicit_ADI(u0, nmax, deltax, deltay, dt, alpha, &
-                           0.0_real64, 0.0_real64, 0.0_real64, 0.0_real64, u, &
-                           do_frames=.true., frame_every=every, &
-                           use_zero_bc=.true., use_source=.true., r_source=r_source, t_source=t_source)
-
-    call makeMP4('animation/png/frame_%06d.png', 'animation/movie/implicit_adi_source.mp4', 30)
-
-    deallocate(u)
-  end subroutine make_animation_implicit_adi_source
 
   subroutine makeMP4(png_pattern, outmp4, fps)
     character(len=*), intent(in) :: png_pattern

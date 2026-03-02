@@ -3,30 +3,12 @@ module solvers_adi
   use kinds,     only: real64
   use tridiag,   only: thomasTriDiagonal
   use io_dirs,   only: ensure_animation_dirs
-  use io_field,  only: write_field_xyz
-  use plotting,  only: plotContourMatlabLike
+  use animation, only: write_frame, animation_step
   implicit none
   private
   public :: FTCS_implicit_ADI
 
 contains
-
-  subroutine write_frame(step, u, deltax, deltay, time_hr, scheme)
-    integer, intent(in) :: step
-    real(real64), intent(in) :: u(:,:)
-    real(real64), intent(in) :: deltax, deltay, time_hr
-    character(len=*), intent(in) :: scheme
-
-    character(len=256) :: datfile, pngfile
-
-    write(datfile,'(A,I6.6,A)') 'animation/dat/frame_', step, '.dat'
-    write(pngfile,'(A,I6.6,A)') 'animation/png/frame_', step, '.png'
-
-    call write_field_xyz(trim(datfile), u, deltax, deltay)
-    call plotContourMatlabLike(trim(datfile), trim(pngfile), time_hr, scheme)
-  end subroutine write_frame
-
-
   subroutine apply_bc_dirichlet(u, t1, t2, t3, t4)
     real(real64), intent(inout) :: u(:,:)
     real(real64), intent(in) :: t1, t2, t3, t4
@@ -207,8 +189,7 @@ contains
       write(*,'(/,A,I6)') 'Implicit ADI animation: total steps = ', nmax
       write(*,'(A,I0)') 'Writing frames every ', every
 
-      write(*,'(A,I6,A,I6,A)', advance='no') 'Frame ', 0, ' / ', nmax, char(13)
-      flush(output_unit)
+      call animation_step(0, nmax, scheme, frames_on, every)
       call write_frame(0, u, deltax, deltay, 0.0_real64, scheme)
     end if
 
@@ -272,13 +253,14 @@ contains
 
       if (frames_on) then
         if (mod(n, every) == 0 .or. n == nmax) then
-           write(*,'(A,I6,A,I6,A)', advance='no') 'Frame ', n, ' / ', nmax, char(13)
-           flush(output_unit)
+           call animation_step(n, nmax, scheme, frames_on, every)
           call write_frame(n, u, deltax, deltay, real(n, real64)*dt, scheme)
         end if
       end if
    end do
-   if(frames_on) write(*,*)
+    if (frames_on) then
+      write(output_unit,*)
+    end if
 
     deallocate(u_dummy, ax, bx, cx, dx, solx, ay, by, cy, dy, soly)
   end subroutine FTCS_implicit_ADI
