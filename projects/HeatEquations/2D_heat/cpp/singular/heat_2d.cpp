@@ -163,7 +163,7 @@ void ensure_dir(const char* name) {
 void ensure_project_dirs() {
   ensure_dir("data");
   ensure_dir("plot");
-  ensure_dir("gnuplot_scripts");
+  // ensure_dir("gnuplot_scripts");
 }
 
 // ---------------------------------------------------------------------------
@@ -606,7 +606,6 @@ void write_field_xyz(const char* filename,
 // ---------------------------------------------------------------------------
 // Plot helpers
 // ---------------------------------------------------------------------------
-
 void plotContourMatlabLike(const char* datafile,
                            const char* outpng,
                            double time_hr,
@@ -614,16 +613,16 @@ void plotContourMatlabLike(const char* datafile,
 
   char cmd[1024];
   std::snprintf(cmd, sizeof(cmd),
-                "gnuplot -e \""
-                "datafile=\\\"%s\\\"; "
-                "outpng=\\\"%s\\\"; "
-                "tlabel=%.3f; "
-                "scheme=\\\"%s\\\"\" "
-                "gnuplot_scripts/plot_contour_2d_matlab_like.gp",
+                "python3 plot_heat_2d.py contour \"%s\" \"%s\" %.6f \"%s\"",
                 datafile, outpng, time_hr, scheme);
 
   std::printf("\n%s\n", scheme);
-  std::system(cmd);
+
+  int status = std::system(cmd);
+  if (status != 0) {
+    std::fprintf(stderr, "Python contour plotting failed.\n");
+    std::exit(EXIT_FAILURE);
+  }
 }
 
 void plot_time_convergence(const char* datafile,
@@ -631,12 +630,14 @@ void plot_time_convergence(const char* datafile,
 
   char cmd[1024];
   std::snprintf(cmd, sizeof(cmd),
-                "gnuplot -e \""
-                "datafile=\\\"%s\\\"; "
-                "outpng=\\\"%s\\\"\" "
-                "gnuplot_scripts/plot_convergence.gp",
+                "python3 plot_heat_2d.py convergence \"%s\" \"%s\"",
                 datafile, outpng);
 
   std::printf("\nTime convergence plot\n");
-  std::system(cmd);
+
+  int status = std::system(cmd);
+  if (status != 0) {
+    std::fprintf(stderr, "Python convergence plotting failed.\n");
+    std::exit(EXIT_FAILURE);
+  }
 }
