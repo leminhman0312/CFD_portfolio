@@ -3,6 +3,7 @@ CXXFLAGS = -Wall -Wextra -O2 -std=c++17 -Iinclude
 LDFLAGS  = -lm
 
 TARGET = heat_2d
+PLOT   = plot_heat_2d.py
 
 SRC = \
   src/main.cpp \
@@ -18,31 +19,47 @@ SRC = \
 
 OBJ = $(SRC:src/%.cpp=build/%.o)
 
-.PHONY: default all sim convergence clean
+.PHONY: default build sim convergence all run clean clean_outputs clean_all
 
 default:
-	@echo "make sim | make convergence | make all | make clean"
+	@echo "make sim | make convergence | make all | make run | make clean | make clean_outputs | make clean_all"
+
+build: $(TARGET)
 
 $(TARGET): $(OBJ)
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
-build/%.o: src/%.cpp include/heat_2d.hpp | build
+build/%.o: src/%.cpp include/heat_2d.hpp | build_dir
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-build:
+build_dir:
 	mkdir -p build
 
-sim: $(TARGET)
+sim: build $(PLOT)
 	./$(TARGET) sim
 
-convergence: $(TARGET)
+convergence: build $(PLOT)
 	./$(TARGET) convergence
 
-all: $(TARGET)
+all: build $(PLOT)
 	./$(TARGET) all
+
+run: build $(PLOT)
+	./$(TARGET)
 
 clean:
 	rm -f $(TARGET)
+	rm -f heat2d
+	rm -f a.out
+	rm -f *~
+	rm -f include/*~
+	rm -f src/*~
 	rm -rf build
+
+clean_outputs:
 	-rm -f data/*.dat
 	-rm -f plot/*.png
+	-rm -f plot/*.png~
+
+clean_all: clean clean_outputs
+	-rm -rf gnuplot_scripts

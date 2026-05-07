@@ -1,36 +1,32 @@
 #include "heat_2d.hpp"
 
-
-void plotContourMatlabLike(const char* datafile,
-                           const char* outpng,
-                           double time_hr,
-                           const char* scheme) {
-
+void plotContourMatlabLike(const char* datafile, const char* outpng,
+                           double time_hr, const char* scheme) {
   char cmd[1024];
   std::snprintf(cmd, sizeof(cmd),
-                "gnuplot -e \""
-                "datafile=\\\"%s\\\"; "
-                "outpng=\\\"%s\\\"; "
-                "tlabel=%.3f; "
-                "scheme=\\\"%s\\\"\" "
-                "gnuplot_scripts/plot_contour_2d_matlab_like.gp",
+                "python3 plot_heat_2d.py contour \"%s\" \"%s\" %.6f \"%s\"",
                 datafile, outpng, time_hr, scheme);
 
   std::printf("\n%s\n", scheme);
-  std::system(cmd);
+
+  int status = std::system(cmd);
+  if (status != 0) {
+    std::fprintf(stderr, "Python contour plotting failed.\n");
+    std::exit(EXIT_FAILURE);
+  }
 }
 
-void plot_time_convergence(const char* datafile,
-                           const char* outpng) {
-
+void plot_time_convergence(const char* datafile, const char* outpng) {
   char cmd[1024];
   std::snprintf(cmd, sizeof(cmd),
-                "gnuplot -e \""
-                "datafile=\\\"%s\\\"; "
-                "outpng=\\\"%s\\\"\" "
-                "gnuplot_scripts/plot_convergence.gp",
-                datafile, outpng);
+                "python3 plot_heat_2d.py convergence \"%s\" \"%s\"", datafile,
+                outpng);
 
   std::printf("\nTime convergence plot\n");
-  std::system(cmd);
+
+  int status = std::system(cmd);
+  if (status != 0) {
+    std::fprintf(stderr, "Python convergence plotting failed.\n");
+    std::exit(EXIT_FAILURE);
+  }
 }
