@@ -2,6 +2,7 @@
 #include <cmath>
 
 // prototypes
+
 void init(double psi[][22], double psi_old[][22],
           int imax, int jmax, double dx);
 
@@ -26,6 +27,12 @@ void Line_GS(double psi[][22], double psi_old[][22],
              int imax, int jmax,
              double dx, double dy,
              double error_max, int iter_max);
+
+void Line_SOR(double w, double psi[][22], double psi_old[][22],
+             int imax, int jmax,
+             double dx, double dy,
+             double error_max, int iter_max);
+
 
 static void thomasTriDiagonal(int N,
                               const double a[],
@@ -270,15 +277,84 @@ void Line_GS(double psi[][22], double psi_old[][22],
 }
 
 
+
+// Line SOR
+void Line_SOR(double w, double psi[][22], double psi_old[][22],
+             int imax, int jmax,
+             double dx, double dy,
+             double error_max, int iter_max){
+
+    init(psi, psi_old, imax, jmax, dx);
+
+    double beta = dx/dy;
+    double beta2 = beta*beta;
+
+    int N = imax - 1;
+
+    double a[32], b[32], c[32], d[32], u[32];
+    double dprime[32], cprime[32];
+
+    double error = 10.0;
+    int iter = 0;
+
+    printf("\nSolving Line SOR\n");
+
+    while(error > error_max && iter < iter_max){
+
+        iter++;
+        error = 0.0;
+
+        for(int j = 2; j <= jmax-1; j++){
+
+            for(int i = 2; i <= imax-1; i++){
+                psi_old[i][j] = psi[i][j];
+            }
+
+            for(int i = 2; i <= imax-1; i++){
+
+                b[i] = -w;
+                d[i] =  2.0*(1.0 + beta2);
+                a[i] = -w;
+
+                c[i] = w*beta2*(psi[i][j-1] + psi[i][j+1])
+                    +(1-w)*2.0*(1+beta2)*psi[i][j];
+            }
+
+            b[2] = 0.0;
+            c[2] += w*psi[1][j];
+
+            a[imax-1] = 0.0;
+            c[imax-1] += w*psi[imax][j];
+
+            thomasTriDiagonal(N, a, b, c, d, u, dprime, cprime);
+
+            for(int i = 2; i <= imax-1; i++){
+                psi[i][j] = u[i];
+                error += fabs(psi[i][j] - psi_old[i][j]);
+            }
+        }
+
+        for(int j = 2; j <= jmax-1; j++){
+            psi[imax][j] = psi[imax-1][j];
+        }
+    }
+
+    printf("Line SOR iter = %d\n", iter);
+    printf("Line SOR error = %f\n", error);
+}
+
+
+
+
 // write file
-void writeFile(double psi[][22],
+void writeFile(const char filename[], double psi[][22],
                int imax, int jmax,
                double dx, double dy){
 
-    FILE *fp = fopen("data/psi.dat", "w");
+    FILE *fp = fopen(filename, "w");
 
     if(fp == NULL){
-        printf("File failed to open\n");
+        printf("File failed to open file: %s\n", filename);
         return;
     }
 
@@ -297,7 +373,7 @@ void writeFile(double psi[][22],
 
     fclose(fp);
 
-    printf("File written: data/psi.dat\n");
+    printf("File written: %s\n", filename);
 }
 
 
@@ -316,14 +392,20 @@ int main(){
     double error_max = 0.01;
     int iter_max = 10000;
 
-    double w = 1.00;
+    double w = 1.1;
 
     // choose one solver
     Point_GS(psi, psi_old, imax, jmax, dx, dy, error_max, iter_max);
+    writeFile("data/point_gs.dat",psi, imax, jmax, dx, dy);
 
     Point_SOR(w, psi, psi_old, imax, jmax, dx, dy, error_max, iter_max);
+    writeFile("data/point_sor.dat",psi, imax, jmax, dx, dy);
 
     Line_GS(psi, psi_old, imax, jmax, dx, dy, error_max, iter_max);
+    writeFile("data/line_gs.dat",psi, imax, jmax, dx, dy);
+
+    Line_SOR(w,psi, psi_old, imax, jmax, dx, dy, error_max, iter_max);
+    writeFile("data/line_sor.dat",psi, imax, jmax, dx, dy);
 
     // writeFile(psi, imax, jmax, dx, dy);
 

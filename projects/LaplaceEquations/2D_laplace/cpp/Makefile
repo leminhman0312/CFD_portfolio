@@ -13,9 +13,12 @@ $(TARGET): $(SRC)
 	$(CXX) $(CXXFLAGS) $(SRC) -o $(TARGET)
 
 plot:
-	python3 plot_streamline.py
+	python plot_streamline.py point_gs
+	python plot_streamline.py point_sor
+	python plot_streamline.py line_gs
+	python plot_streamline.py line_sor
 
 clean:
 	rm -f $(TARGET)
-	rm -f data/psi.dat
-	rm -f plot/streamline.png
+	rm -f data/*.dat
+	rm -f plot/*.png

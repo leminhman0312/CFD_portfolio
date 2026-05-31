@@ -1,7 +1,14 @@
+import sys
+
 import matplotlib.pyplot as plt
 import numpy as np
 
-data = np.loadtxt("data/psi.dat")
+solver = sys.argv[1]
+
+datafile = f"data/{solver}.dat"
+plotfile = f"plot/{solver}.png"
+
+data = np.loadtxt(datafile)
 
 x = data[:, 0]
 y = data[:, 1]
@@ -18,6 +25,8 @@ plt.figure()
 plt.contour(X, Y, PSI, levels=20)
 plt.xlabel("x")
 plt.ylabel("y")
-plt.title("Streamlines from stream function")
+plt.title(solver)
 plt.axis("equal")
-plt.savefig("plot/streamline.png", dpi=300)
+
+plt.savefig(plotfile, dpi=300)
+print(f"Saved {plotfile}")
