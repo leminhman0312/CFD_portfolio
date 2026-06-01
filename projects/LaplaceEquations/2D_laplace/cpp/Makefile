@@ -12,11 +12,14 @@ run: $(TARGET)
 $(TARGET): $(SRC)
 	$(CXX) $(CXXFLAGS) $(SRC) -o $(TARGET)
 
-plot:
+plot_streamline:
 	python plot_streamline.py point_gs
 	python plot_streamline.py point_sor
 	python plot_streamline.py line_gs
 	python plot_streamline.py line_sor
+
+plot_iteration:
+	python plot_iteration.py
 
 clean:
 	rm -f $(TARGET)
